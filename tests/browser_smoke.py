@@ -120,6 +120,37 @@ def main():
                 expect(page.get_by_role('heading', name='Who can access your files?', exact=True)).to_be_visible()
                 assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
                 page.screenshot(path=str(artifacts / 'about-mobile.png'), full_page=True)
+                # Use a real temporary host folder, without Google credentials.
+                local_folder = Path(directory) / 'Shared'
+                local_folder.mkdir()
+                drive.credentials = None
+                page.get_by_role('button', name='Settings', exact=True).click()
+                page.locator('[data-action="storage-local"]').click()
+                expect(page.get_by_label('Storage location').locator('[aria-pressed="true"]')).to_contain_text('Local storage')
+                page.get_by_role('button', name='Choose folder', exact=True).click()
+                page.get_by_label('Folder path', exact=True).fill(str(local_folder))
+                page.get_by_role('button', name='Share this folder', exact=True).click()
+                expect(page.get_by_role('status').filter(has_text='Local folder ready')).to_be_visible()
+                assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
+                page.screenshot(path=str(artifacts / 'local-settings-mobile.png'), full_page=True)
+                page.get_by_role('button', name='Home', exact=True).click()
+                page.get_by_role('button', name='Start loc.in', exact=True).click()
+                expect(page.get_by_role('button', name='Open loc.in', exact=True)).to_be_visible()
+                page.get_by_role('button', name='Files', exact=True).click()
+                page.locator('#file-picker').set_input_files({'name': 'local-test.txt', 'mimeType': 'text/plain', 'buffer': b'Offline local upload'})
+                expect(page.get_by_role('button', name='local-test.txt', exact=True)).to_be_visible(timeout=15000)
+                assert (local_folder / 'local-test.txt').read_bytes() == b'Offline local upload'
+                with page.expect_download() as local_download:
+                    page.get_by_role('link', name='Download local-test.txt', exact=True).click()
+                assert Path(local_download.value.path()).read_bytes() == b'Offline local upload'
+                page.get_by_role('button', name='Home', exact=True).click()
+                page.get_by_role('button', name='Stop service', exact=True).click()
+                page.get_by_role('button', name='Settings', exact=True).click()
+                page.locator('[data-action="storage-drive"]').click()
+                expect(page.get_by_label('Storage location').locator('[aria-pressed="true"]')).to_contain_text('Google Drive')
+                assert (local_folder / 'local-test.txt').exists()
+                page.locator('[data-action="storage-local"]').click()
+                expect(page.get_by_label('Storage location').locator('[aria-pressed="true"]')).to_contain_text('Local storage')
                 # Same static shell selects the minimal client navigation from /mode.
                 page.route('**/mode', lambda route: route.fulfill(json={'host': False}))
                 page.reload()
