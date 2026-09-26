@@ -1,10 +1,12 @@
+![loc.in — Your files. Your network. Google Drive or local storage.](assets/banner_0.png)
+
 # loc.in
 
 **Free local file sharing. Easy access. Your LAN, your control.**
 
 Connect Google Drive or select local storage, configure a name, and share a folder across your LAN. Access files from a phone, tablet, or computer using a browser. Control the gateway from one simple host app.
 
-**Install. Connect Drive. Choose a name. Start.**
+**Install. Choose storage. Connect. Share.**
 
 loc.in adds no application subscription fee. Google Drive storage limits, internet access, and any Google service charges still apply.
 
