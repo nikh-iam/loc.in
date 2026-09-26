@@ -126,3 +126,13 @@ def test_no_network_is_actionable(runtime, monkeypatch):
     runtime.gateway.start()
     assert runtime.gateway.state == 'Error'
     assert 'Wi-Fi or Ethernet' in runtime.gateway.error
+
+
+def test_local_service_without_google(runtime, network_stack, tmp_path):
+    runtime.drive.credentials = None
+    runtime.db.save({'storage_mode': 'local', 'local_folder': str(tmp_path)})
+    runtime.gateway.start()
+    try:
+        assert runtime.gateway.state == 'Running'
+    finally:
+        runtime.gateway.stop()

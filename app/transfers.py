@@ -30,7 +30,9 @@ class Transfers:
 
     def finish(self, key, status='Completed', error=None):
         with self.lock:
-            self.uploads.pop(key, None)
+            item = self.uploads.pop(key, None)
+            if item and item.get('cleanup'):
+                item['cleanup'](item['url'])
             self.downloads.discard(key)
             with self.db.connect() as db:
                 db.execute("UPDATE transfers SET status=?, completed_at=?, error=? WHERE id=? AND status IN ('Waiting','Uploading','Downloading')", (status, time.time(), error, key))

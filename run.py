@@ -111,6 +111,10 @@ def main():
                 import webview
                 webview.settings['ALLOW_DOWNLOADS'] = True
                 window = webview.create_window('loc.in', url, width=1220, height=850, min_size=(720, 560), background_color='#f7f8f5', hidden=args.background)
+                def pick_folder():
+                    selected = window.create_file_dialog(webview.FileDialog.FOLDER)
+                    return selected[0] if selected else None
+                runtime.pick_folder = pick_folder
             try:
                 import pystray
                 tray = pystray.Icon('loc.in', tray_image(), 'loc.in — Your local Drive', menu=pystray.Menu(
