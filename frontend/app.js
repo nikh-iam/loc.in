@@ -33,13 +33,14 @@ const folderMime = 'application/vnd.google-apps.folder';
 let token = new URLSearchParams(location.hash.slice(1)).get('token') || sessionStorage.getItem('locin-token');
 if(token) { sessionStorage.setItem('locin-token', token); history.replaceState(null, '', location.pathname); }
 let toastTimer, searchTimer, pollBusy=false, fileGeneration=0;
+let startupSignal;
 
 async function api(path, options={}) {
   const headers = {'X-Locin-Request':'1', ...(token ? {'X-Host-Token':token} : {}), ...options.headers};
   if(options.body && typeof options.body !== 'string' && !(options.body instanceof Blob)) {
     options.body=JSON.stringify(options.body); headers['Content-Type']='application/json';
   }
-  const response=await fetch(path,{...options,headers});
+  const response=await fetch(path,{signal:startupSignal,...options,headers});
   if(!response.ok) {
     const data=await response.json().catch(()=>({detail:'The host is unavailable. Check your connection.'}));
     throw new Error(typeof data.detail==='string' ? data.detail : 'Please check the values and try again.');
@@ -160,7 +161,7 @@ function networkHelp() {
   return `<div class="guide-note"><strong>Your custom address: ${esc(s.address||'http://locin.loc.in')}</strong><p>A network DNS administrator must create an <strong>A record</strong> for <code>${esc((s.address||'http://locin.loc.in').split('//')[1].split(':')[0])}</code> pointing to <code>${esc(s.fallback ? new URL(s.fallback).hostname : 'the host’s local IP')}</code>. Reserve that IP in the router so it stays the same. Client devices must use that DNS server.</p><p>This does not publish the gateway to the internet. A subdomain under loc.in is not automatically created by this app. Use a domain you control or an administrator-managed internal DNS override.</p><p>Without custom DNS, use <strong>${esc(s.discovery_address||'http://locin.local')}</strong> on devices supporting local discovery, or ${s.fallback?`<a href="${esc(s.fallback)}" target="_blank" rel="noopener">${esc(s.fallback)}</a>`:'the IP fallback shown after starting'}. Keep any displayed <code>:8000</code> suffix.</p></div>`;
 }
 function about() {
-  return heading('About loc.in','Cloud or local storage, shared with the devices around you.', '<span class="pill">Version 1.1.0</span>')+`
+  return heading('About loc.in','Cloud or local storage, shared with the devices around you.', '<span class="pill">Version 1.1.1</span>')+`
     <section class="hero"><div class="hero-content"><p class="eyebrow">INSTALL. CONNECT. CHOOSE A NAME. START.</p><h2 class="about-title">One computer. A shared local space.</h2><p class="about-intro">loc.in connects a Google Drive folder or a folder on this computer to your local network. Google Drive is the recommended cloud option; local storage works without Google or internet access. Keep the host running, and open its address from a phone, tablet, or computer. No client app is needed.</p></div>${art()}</section>
     <div class="about-grid">
       <section class="panel"><div class="panel-header"><h2>${icon('folder')} Files, kept simple</h2></div><div class="panel-body"><ul><li>Browse folders and search the current folder.</li><li>Upload multiple files, download files, and create folders.</li><li>Share only your selected folder and its contents. Switch storage from Settings while stopped; files are never moved between storage options.</li><li>Download Google Docs as PDF, Sheets as XLSX, and Slides as PPTX.</li></ul></div></section>
@@ -248,6 +249,7 @@ async function processUploads() {
   }finally{state.uploading=false;state.uploads=state.uploads.filter(u=>u.status==='Waiting');if(state.uploads.length)void processUploads();}
 }
 const actions={
+  'retry-startup':()=>location.reload(),
   'storage-drive':async()=>{await saveSettings(undefined,{storage_mode:'drive'});state.crumbs=[];state.search='';await refresh();render();},
   'storage-local':async()=>{await saveSettings(undefined,{storage_mode:'local'});state.crumbs=[];state.search='';await refresh();render();},
   'local-folder':()=>showDialog(dialogHeading('Choose a local folder')+`<p>Choose an existing folder on this host computer. Everything inside will be available to devices on your LAN.</p><div class="field"><label for="local-folder-path">Folder path</label><input id="local-folder-path" value="${esc(state.status.local_folder||'')}" placeholder="C:\\Users\\You\\Shared">${state.status.folder_picker?'<button data-action="browse-local-folder">Browse folders</button>':'<small>Paste the full folder path from File Explorer.</small>'}</div><div class="dialog-actions"><button data-action="close-dialog">Cancel</button><button class="primary" data-action="save-local-folder">Share this folder</button></div>`),
@@ -307,6 +309,9 @@ document.addEventListener('dragleave',event=>{if(!event.relatedTarget)$('#file-d
 document.addEventListener('drop',event=>{if(state.view==='files'){event.preventDefault();$('#file-drop')?.classList.remove('drop-active');if(event.dataTransfer.files.length)queueFiles([...event.dataTransfer.files]);}});
 window.addEventListener('beforeunload',event=>{if(state.uploading){event.preventDefault();event.returnValue='';}});
 async function boot(){
+  const started=performance.now(), controller=new AbortController();
+  startupSignal=controller.signal;
+  const timeout=setTimeout(()=>controller.abort(),12000);
   $('#workspace-icon').innerHTML=icon('folder');$('#network-icon').innerHTML=icon('wifi');$('#topbar-icon').innerHTML=icon('home');
   try{
     state.host=(await api('/mode')).host;state.view=state.host?'home':'files';$('#role-avatar').textContent=state.host?'H':'L';
@@ -317,6 +322,14 @@ async function boot(){
       try{await refresh();if(['home','devices','transfers'].includes(state.view)&&!state.busy&&!$('#dialog').open&&!['INPUT','TEXTAREA'].includes(document.activeElement.tagName))render();}
       catch(e){toast(e.message,true);}finally{pollBusy=false;}
     },4000);
-  }catch(e){$('#content').innerHTML=heading('Your local space.','Let’s get you connected.')+`<div class="alert">${esc(e.message)}</div>`;}
+  }catch(e){$('#content').innerHTML=heading('Your local space.','Let’s get you connected.')+`<div class="alert">${esc(e.name==='AbortError'?'The host is taking too long to respond. Check that loc.in is running, then try again.':e.message)}</div><button class="primary" data-action="retry-startup">Try again</button>`;}
+  finally{
+    clearTimeout(timeout);startupSignal=undefined;
+    const reduced=matchMedia('(prefers-reduced-motion: reduce)').matches;
+    await new Promise(resolve=>setTimeout(resolve,Math.max(0,(reduced?0:1000)-(performance.now()-started))));
+    const loader=$('#preloader');loader.classList.add('is-ready');
+    $('.app').removeAttribute('inert');$('.app').setAttribute('aria-busy','false');
+    setTimeout(()=>loader.remove(),reduced?0:350);
+  }
 }
 void boot();

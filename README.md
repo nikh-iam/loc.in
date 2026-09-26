@@ -20,6 +20,8 @@ loc.in adds no application subscription fee. Google Drive storage limits, intern
 
 loc.in turns one Windows computer into a file gateway for devices on the same local network. The host has Home, Files, Devices, Settings, and About; other devices need only a browser with Files and Transfers.
 
+An animated opening screen brings the folder and network artwork to life while loc.in loads. It works entirely from local assets, respects reduced-motion preferences, and provides a retry screen if the host takes too long to respond.
+
 ## Choose your storage
 
 | Option | Where files live | Internet needed? |
@@ -46,7 +48,7 @@ This repository implements the MVP and includes a Windows desktop launcher, tray
 
 Before real Drive access, import a Google Desktop OAuth client through the installed app, or bundle the publisher's configuration as described below. Automated backend and browser tests use a synthetic Drive adapter only under `tests/`; live Google consent, real large-file transfers, and discovery from a second physical device must still be verified before release.
 
-## Set up Google Drive in the installed app (v1.1.0)
+## Set up Google Drive in the installed app (v1.1.1)
 
 If you see a message about missing Google configuration, the installer has no publisher OAuth client bundled. You do not need to install Python or rebuild the app:
 

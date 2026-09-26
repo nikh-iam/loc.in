@@ -50,6 +50,12 @@ def main():
                 errors = []
                 page.on('pageerror', lambda error: errors.append(str(error)))
                 page.goto(f'http://127.0.0.1:{port}/#token={runtime.host_token}')
+                expect(page.locator('#preloader')).to_be_visible()
+                expect(page.get_by_role('heading', name='Your files. Your network.', exact=True)).to_be_visible()
+                assert page.locator('.app').get_attribute('inert') is not None
+                page.screenshot(path=str(artifacts / 'preloader-desktop.png'), full_page=True)
+                expect(page.locator('#preloader')).to_have_count(0, timeout=15000)
+                expect(page.locator('.app')).to_have_attribute('aria-busy', 'false')
                 expect(page.get_by_role('heading', name='Your Drive. Meet your network.')).to_be_visible()
                 expect(page.get_by_role('button', name='Start loc.in', exact=True)).to_be_disabled()
                 page.screenshot(path=str(artifacts / 'setup-desktop.png'), full_page=True)
@@ -161,6 +167,27 @@ def main():
                 expect(page.get_by_role('heading', name='A little back and forth.')).to_be_visible()
                 page.screenshot(path=str(artifacts / 'transfers-mobile.png'), full_page=True)
                 assert not errors, errors
+                failed = context.new_page()
+                failed.emulate_media(reduced_motion='reduce')
+                failed.set_viewport_size({'width': 390, 'height': 844})
+                failed.route('**/mode', lambda route: route.fulfill(status=503, json={'detail': 'Host unavailable.'}))
+                failed.goto(f'http://127.0.0.1:{port}/')
+                expect(failed.locator('#preloader')).to_have_count(0)
+                expect(failed.get_by_role('button', name='Try again', exact=True)).to_be_visible()
+                failed.close()
+                stalled = context.new_page()
+                stalled.set_viewport_size({'width': 390, 'height': 844})
+                stalled_routes = []
+                stalled.route('**/mode', lambda route: stalled_routes.append(route))
+                stalled.goto(f'http://127.0.0.1:{port}/')
+                expect(stalled.locator('#preloader')).to_be_visible()
+                assert stalled.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
+                stalled.screenshot(path=str(artifacts / 'preloader-mobile.png'), full_page=True)
+                expect(stalled.get_by_role('button', name='Try again', exact=True)).to_be_visible(timeout=15000)
+                expect(stalled.locator('#preloader')).to_have_count(0)
+                for route in stalled_routes:
+                    route.abort()
+                stalled.close()
                 browser.close()
         finally:
             server.should_exit = True
