@@ -1,10 +1,12 @@
+![loc.in — Your files. Your network. Google Drive or local storage.](assets/banner_0.png)
+
 # loc.in
 
 **Free local file sharing. Easy access. Your LAN, your control.**
 
-Connect Google Drive, configure a name, and share a folder across your LAN. Access files from a phone, tablet, or computer using a browser. Control the gateway from one simple host app.
+Connect Google Drive or select local storage, configure a name, and share a folder across your LAN. Access files from a phone, tablet, or computer using a browser. Control the gateway from one simple host app.
 
-**Install. Connect Drive. Choose a name. Start.**
+**Install. Choose storage. Connect. Share.**
 
 loc.in adds no application subscription fee. Google Drive storage limits, internet access, and any Google service charges still apply.
 
@@ -12,11 +14,33 @@ loc.in adds no application subscription fee. Google Drive storage limits, intern
 | --- | --- |
 | **Connect** | Sign in to Google Drive through Google OAuth. |
 | **Configure** | Choose a shared folder and a custom local address. |
-| **Share** | Make selected Drive files available on your LAN. |
+| **Share** | Make a selected Drive or local folder available on your LAN. |
 | **Access** | Browse, upload, and download in a browser without installing a client app. |
 | **Control** | Start or stop sharing and see connected devices and transfers. |
 
-loc.in turns one Windows computer into a Google Drive gateway for devices on the same local network. The host has Home, Files, Devices, Settings, and About; other devices need only a browser with Files and Transfers.
+loc.in turns one Windows computer into a file gateway for devices on the same local network. The host has Home, Files, Devices, Settings, and About; other devices need only a browser with Files and Transfers.
+
+An animated opening screen brings the folder and network artwork to life while loc.in loads. It works entirely from local assets, respects reduced-motion preferences, and provides a retry screen if the host takes too long to respond.
+
+## Choose your storage
+
+| Option | Where files live | Internet needed? |
+| --- | --- | --- |
+| **Cloud · Google Drive (recommended)** | Your selected Google Drive folder | Yes, for file operations |
+| **Local storage** | An existing folder you select on the host computer | No; only the LAN connection is needed |
+
+Both options share files over the LAN. “Cloud” describes where files are stored; it does not make the gateway publicly accessible. One storage option is active at a time.
+
+For local storage:
+
+1. Open loc.in and select **Local storage** in setup or Settings.
+2. Click **Choose folder**, then **Browse folders** in the desktop app. In browser mode, paste an absolute folder path from File Explorer, such as `C:\Users\You\Shared`.
+3. Choose **Share this folder**, configure your local name, and click **Start loc.in**.
+4. On another LAN device, open the address shown on Home. The same browsing, uploads, downloads, and transfer progress work without Google sign-in.
+
+To switch storage, stop the service and let transfers finish, then open Settings. Each storage choice remembers its folder; switching never copies, moves, or deletes your files. Google Drive remains the default for new installations. The host must stay awake for either option.
+
+Local storage rejects symbolic links, Windows junctions/reparse points, hard-linked files, reserved filenames, and requests outside the selected folder. Uploading a duplicate filename returns a rename-and-retry message instead of replacing an existing file. Choose a regular folder rather than a whole disk or a linked folder.
 
 ## Development build status
 
@@ -24,7 +48,7 @@ This repository implements the MVP and includes a Windows desktop launcher, tray
 
 Before real Drive access, import a Google Desktop OAuth client through the installed app, or bundle the publisher's configuration as described below. Automated backend and browser tests use a synthetic Drive adapter only under `tests/`; live Google consent, real large-file transfers, and discovery from a second physical device must still be verified before release.
 
-## Set up the installed app (v1.0.1)
+## Set up Google Drive in the installed app (v1.1.1)
 
 If you see a message about missing Google configuration, the installer has no publisher OAuth client bundled. You do not need to install Python or rebuild the app:
 
@@ -154,13 +178,13 @@ Do not paste tokens into source files or logs. The desktop OAuth client configur
 - The installer adds program-specific Windows Firewall rules for Private/Domain profiles and local-subnet peers only. It does not change router settings, configure DNS, or enable port forwarding.
 - On guest Wi-Fi, with client isolation, or on networks/devices that block multicast DNS, use the numeric fallback or move to a network that allows devices to communicate. Windows must use the **Private** or **Domain** profile for the installer's firewall rules to apply.
 - After changing Wi-Fi/adapters or the computer's IP address, stop and restart the gateway so it binds and advertises the new address. Multiple routed subnets and IPv6 are outside this version's scope.
-- Internet loss does not prevent the local interface or status pages from loading. Drive operations show a recoverable error. Actual file access still requires internet connectivity.
+- Internet loss does not prevent the local interface or status pages from loading. Drive operations show a recoverable error. Local storage continues to browse and transfer files without internet access.
 
 ## Files and transfers
 
 Only the selected root and its descendants are reachable through client file APIs. Folder listings load up to 100 items and support a next-page cursor. Search applies to the **current folder**, including pages of results. Clients can upload, download, and create folders. Delete is intentionally not enabled in this version.
 
-Uploads use browser `Blob.slice` and **4 MiB** chunks sent to the host, then to a Google Drive resumable session. The host keeps only a bounded chunk in memory, never writes upload contents to disk or SQLite, and never sends Google's session URL to a client. Empty files are supported. Three uploads/downloads may be active across all devices; the browser queues its own selected files sequentially. A fourth device transfer gets a clear retry message. See [Google's resumable-upload protocol](https://developers.google.com/workspace/drive/api/guides/manage-uploads).
+Uploads use browser `Blob.slice` and **4 MiB** chunks sent to the host. In Google Drive mode, the host forwards them to a resumable session without writing upload contents to disk or exposing Google's session URL. In local mode, chunks go to an OS-managed temporary file in the chosen folder, then a bounded-memory copy creates the completed file without overwriting an existing name. Finalization can temporarily need twice the file size in free disk space. Temporary files are hidden from gateway listings and removed on completion, cancellation, timeout, or process exit. A host interruption during the final copy can leave a partial destination file; remove or rename it before retrying. Uploaded contents never enter SQLite. Empty files are supported. Three uploads/downloads may be active across all devices; the browser queues its own selected files sequentially. A fourth device transfer gets a clear retry message. See [Google's resumable-upload protocol](https://developers.google.com/workspace/drive/api/guides/manage-uploads).
 
 Downloads stream in 4 MiB blocks. Google Docs export to PDF, Sheets to XLSX, and Slides to PPTX; Google's export limits still apply. Shortcuts and other native Google file types are not downloadable here. A completed download means the host finished streaming to the browser, not that the user selected a final disk location.
 
@@ -206,7 +230,7 @@ node --check frontend/app.js
 .\.venv\Scripts\python.exe run.py --smoke-test
 ```
 
-Tests cover host authentication, subnet and origin checks, folder confinement, moved/trashed parents, chunk bounds and offsets, empty uploads, cancellation, capacity limits, private transfer histories, streaming download cleanup, settings, OAuth state, pagination, and offline/disconnected behavior. The browser suite exercises onboarding, draft retention, service controls, folders, search, upload/download, settings, desktop/mobile layouts, and client navigation. It runs an isolated loopback server with synthetic content and does not contact Google or advertise on the LAN. Screenshots go to `data/screenshots/`.
+Tests cover real temporary local folders, storage switching, local upload cleanup and collision protection, host authentication, subnet and origin checks, folder confinement, moved/trashed parents, chunk bounds and offsets, empty uploads, cancellation, capacity limits, private transfer histories, streaming download cleanup, settings, OAuth state, pagination, and offline/disconnected behavior. The browser suite exercises onboarding, draft retention, service controls, folders, search, upload/download, settings, desktop/mobile layouts, and client navigation. It runs an isolated loopback server with synthetic Drive content and real temporary local files and does not contact Google or advertise on the LAN. Screenshots go to `data/screenshots/`.
 
 ## Layout and local data
 
@@ -214,6 +238,7 @@ Tests cover host authentication, subnet and origin checks, folder confinement, m
 app/
   main.py        Host/client application factories, OAuth, settings
   drive.py       Google Drive HTTP adapter and folder confinement
+  local.py       Local folder storage, path confinement, temporary uploads
   files.py       Listings, folders, chunked uploads, streamed downloads
   transfers.py   Concurrency and transfer history
   devices.py     Recently active clients
@@ -227,7 +252,7 @@ tests/           Isolated backend and browser tests
 run.py           Native desktop window and system tray
 ```
 
-Settings, device metadata and transfer history live in `%LOCALAPPDATA%/loc.in/locin.db`. Override with `LOCIN_DATA_DIR` for isolated development. No uploaded files are stored there. OAuth credentials are kept in the OS credential vault under service `loc.in`, account `google-oauth`; imported desktop client configuration uses account `google-client`. Uninstalling retains these per-user data and credentials; remove them explicitly if you want to reset the application.
+Settings, device metadata and transfer history live in `%LOCALAPPDATA%/loc.in/locin.db`. Override with `LOCIN_DATA_DIR` for isolated development. Uploaded contents are never stored in the database; local-mode files live in your selected shared folder. OAuth credentials are kept in the OS credential vault under service `loc.in`, account `google-oauth`; imported desktop client configuration uses account `google-client`. Uninstalling retains these per-user data and credentials; remove them explicitly if you want to reset the application.
 
 ## Before production release
 

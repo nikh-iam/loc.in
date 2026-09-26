@@ -3,6 +3,8 @@ import json
 import secrets
 import threading
 import time
+from pathlib import Path
+from typing import Literal
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -16,12 +18,14 @@ from .drive import Drive, DriveError, SCOPES
 from .files import routes
 from .network import Gateway
 from .transfers import Transfers
+from .local import LocalStorage, validate_folder
 
 
 class Runtime:
     def __init__(self, db=None, drive=None):
         self.db = db or Database()
         self.drive = drive or Drive()
+        self.local = LocalStorage(self.db)
         self.transfers = Transfers(self.db)
         self.gateway = Gateway(self)
         self.host_token = secrets.token_urlsafe(32)
@@ -29,12 +33,24 @@ class Runtime:
         self.oauth_lock = threading.Lock()
         self.settings_lock = threading.Lock()
         self.open_browser = None
+        self.pick_folder = None
+
+    @property
+    def storage(self):
+        return self.local if self.db.settings()['storage_mode'] == 'local' else self.drive
+
+    @property
+    def storage_root(self):
+        settings = self.db.settings()
+        return 'local_root' if settings['storage_mode'] == 'local' and settings['local_folder'] else settings['folder_id'] if settings['storage_mode'] == 'drive' else ''
 
 
 class SettingsInput(BaseModel):
     local_name: str = Field(max_length=63)
     folder_id: str = Field(default='', max_length=200)
     start_at_login: bool = False
+    storage_mode: Literal['drive', 'local'] = 'drive'
+    local_folder: str = Field(default='', max_length=4096)
 
 
 def create_app(runtime=None, host=True):
@@ -50,6 +66,10 @@ def create_app(runtime=None, host=True):
     @app.exception_handler(ValueError)
     async def input_error(request, exc):
         return JSONResponse({'detail': str(exc)}, status_code=400)
+
+    @app.exception_handler(OSError)
+    async def storage_error(request, exc):
+        return JSONResponse({'detail': 'Storage is unavailable. Check the folder, free space, and permissions on the host.'}, status_code=503)
 
     @app.middleware('http')
     async def boundary(request, call_next):
@@ -103,10 +123,20 @@ def create_app(runtime=None, host=True):
     @app.get('/api/status')
     def status():
         settings = db.settings()
-        result = {'state': gateway.state, 'connected': bool(drive.credentials), 'unavailable': drive.unavailable,
-                  'folder_name': settings['folder_name'], 'address': gateway.address(), 'host': host}
+        local = settings['storage_mode'] == 'local'
+        ready = bool(settings['local_folder']) if local else bool(drive.credentials)
+        if local and ready:
+            try:
+                runtime.local.root()
+            except ValueError:
+                ready = False
+        result = {'state': gateway.state, 'connected': ready, 'unavailable': not ready if local else drive.unavailable,
+                  'storage_mode': settings['storage_mode'],
+                  'folder_name': Path(settings['local_folder']).name if local else settings['folder_name'], 'address': gateway.address(), 'host': host}
         if host:
-            result.update({'email': drive.email, 'folder_id': settings['folder_id'], 'local_name': settings['local_name'],
+            result.update({'email': drive.email, 'folder_id': runtime.storage_root, 'drive_folder_id': settings['folder_id'],
+                           'drive_connected': bool(drive.credentials), 'local_folder': settings['local_folder'],
+                           'folder_picker': bool(runtime.pick_folder), 'local_name': settings['local_name'],
                            'oauth_configured': drive.oauth_ready(), 'discovery_address': gateway.discovery_address(),
                            'fallback': f'http://{gateway.ip}:{gateway.port}' if gateway.ip else None,
                            'devices': len(active(db)), 'active_transfers': len(runtime.transfers.uploads) + len(runtime.transfers.downloads),
@@ -153,7 +183,10 @@ def create_app(runtime=None, host=True):
                     raise HTTPException(409, 'Stop loc.in and let transfers finish before changing settings.')
                 name = valid_hostname(body.local_name)
                 values = {'local_name': name, 'start_at_login': body.start_at_login}
-                if body.folder_id:
+                values['storage_mode'] = body.storage_mode
+                if body.local_folder:
+                    values['local_folder'] = validate_folder(body.local_folder)
+                if body.folder_id and body.storage_mode == 'drive':
                     folder = drive.metadata(valid_id(body.folder_id))
                     if folder['mimeType'] != FOLDER or folder.get('trashed'):
                         raise HTTPException(400, 'Choose an available Drive folder.')
@@ -163,6 +196,13 @@ def create_app(runtime=None, host=True):
                     set_startup(body.start_at_login)
                 db.save(values)
             return db.settings()
+
+        @app.post('/api/storage/select-folder')
+        def select_local_folder():
+            if not runtime.pick_folder:
+                raise HTTPException(400, 'Enter the full folder path, or open the desktop application to browse.')
+            selected = runtime.pick_folder()
+            return {'path': selected or ''}
 
         @app.post('/api/service/{action}')
         def service(action: str):

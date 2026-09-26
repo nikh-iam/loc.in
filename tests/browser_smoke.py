@@ -50,6 +50,12 @@ def main():
                 errors = []
                 page.on('pageerror', lambda error: errors.append(str(error)))
                 page.goto(f'http://127.0.0.1:{port}/#token={runtime.host_token}')
+                expect(page.locator('#preloader')).to_be_visible()
+                expect(page.get_by_role('heading', name='Your files. Your network.', exact=True)).to_be_visible()
+                assert page.locator('.app').get_attribute('inert') is not None
+                page.screenshot(path=str(artifacts / 'preloader-desktop.png'), full_page=True)
+                expect(page.locator('#preloader')).to_have_count(0, timeout=15000)
+                expect(page.locator('.app')).to_have_attribute('aria-busy', 'false')
                 expect(page.get_by_role('heading', name='Your Drive. Meet your network.')).to_be_visible()
                 expect(page.get_by_role('button', name='Start loc.in', exact=True)).to_be_disabled()
                 page.screenshot(path=str(artifacts / 'setup-desktop.png'), full_page=True)
@@ -120,6 +126,37 @@ def main():
                 expect(page.get_by_role('heading', name='Who can access your files?', exact=True)).to_be_visible()
                 assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
                 page.screenshot(path=str(artifacts / 'about-mobile.png'), full_page=True)
+                # Use a real temporary host folder, without Google credentials.
+                local_folder = Path(directory) / 'Shared'
+                local_folder.mkdir()
+                drive.credentials = None
+                page.get_by_role('button', name='Settings', exact=True).click()
+                page.locator('[data-action="storage-local"]').click()
+                expect(page.get_by_label('Storage location').locator('[aria-pressed="true"]')).to_contain_text('Local storage')
+                page.get_by_role('button', name='Choose folder', exact=True).click()
+                page.get_by_label('Folder path', exact=True).fill(str(local_folder))
+                page.get_by_role('button', name='Share this folder', exact=True).click()
+                expect(page.get_by_role('status').filter(has_text='Local folder ready')).to_be_visible()
+                assert page.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
+                page.screenshot(path=str(artifacts / 'local-settings-mobile.png'), full_page=True)
+                page.get_by_role('button', name='Home', exact=True).click()
+                page.get_by_role('button', name='Start loc.in', exact=True).click()
+                expect(page.get_by_role('button', name='Open loc.in', exact=True)).to_be_visible()
+                page.get_by_role('button', name='Files', exact=True).click()
+                page.locator('#file-picker').set_input_files({'name': 'local-test.txt', 'mimeType': 'text/plain', 'buffer': b'Offline local upload'})
+                expect(page.get_by_role('button', name='local-test.txt', exact=True)).to_be_visible(timeout=15000)
+                assert (local_folder / 'local-test.txt').read_bytes() == b'Offline local upload'
+                with page.expect_download() as local_download:
+                    page.get_by_role('link', name='Download local-test.txt', exact=True).click()
+                assert Path(local_download.value.path()).read_bytes() == b'Offline local upload'
+                page.get_by_role('button', name='Home', exact=True).click()
+                page.get_by_role('button', name='Stop service', exact=True).click()
+                page.get_by_role('button', name='Settings', exact=True).click()
+                page.locator('[data-action="storage-drive"]').click()
+                expect(page.get_by_label('Storage location').locator('[aria-pressed="true"]')).to_contain_text('Google Drive')
+                assert (local_folder / 'local-test.txt').exists()
+                page.locator('[data-action="storage-local"]').click()
+                expect(page.get_by_label('Storage location').locator('[aria-pressed="true"]')).to_contain_text('Local storage')
                 # Same static shell selects the minimal client navigation from /mode.
                 page.route('**/mode', lambda route: route.fulfill(json={'host': False}))
                 page.reload()
@@ -130,6 +167,27 @@ def main():
                 expect(page.get_by_role('heading', name='A little back and forth.')).to_be_visible()
                 page.screenshot(path=str(artifacts / 'transfers-mobile.png'), full_page=True)
                 assert not errors, errors
+                failed = context.new_page()
+                failed.emulate_media(reduced_motion='reduce')
+                failed.set_viewport_size({'width': 390, 'height': 844})
+                failed.route('**/mode', lambda route: route.fulfill(status=503, json={'detail': 'Host unavailable.'}))
+                failed.goto(f'http://127.0.0.1:{port}/')
+                expect(failed.locator('#preloader')).to_have_count(0)
+                expect(failed.get_by_role('button', name='Try again', exact=True)).to_be_visible()
+                failed.close()
+                stalled = context.new_page()
+                stalled.set_viewport_size({'width': 390, 'height': 844})
+                stalled_routes = []
+                stalled.route('**/mode', lambda route: stalled_routes.append(route))
+                stalled.goto(f'http://127.0.0.1:{port}/')
+                expect(stalled.locator('#preloader')).to_be_visible()
+                assert stalled.evaluate('document.documentElement.scrollWidth <= window.innerWidth')
+                stalled.screenshot(path=str(artifacts / 'preloader-mobile.png'), full_page=True)
+                expect(stalled.get_by_role('button', name='Try again', exact=True)).to_be_visible(timeout=15000)
+                expect(stalled.locator('#preloader')).to_have_count(0)
+                for route in stalled_routes:
+                    route.abort()
+                stalled.close()
                 browser.close()
         finally:
             server.should_exit = True
