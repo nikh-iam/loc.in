@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#f6f7f3">
+  <title>loc.in — A little closer to your files.</title>
+  <link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="/assets/style.css">
+  <script src="/assets/app.js" defer></script>
+</head>
+<body>
+  <div class="app">
+    <aside class="sidebar">
+      <a class="brand" href="/" aria-label="loc.in home"><span class="brand-icon">l<span>↗</span></span>loc.in<span class="brand-dot">●</span></a>
+      <div class="workspace"><span class="workspace-icon" id="workspace-icon"></span><div><strong>Your local space</strong><small id="workspace-label">A home for your Drive</small></div><span class="tiny-dot"></span></div>
+      <div class="nav-label">WORKSPACE</div>
+      <nav id="navigation" aria-label="Main navigation"></nav>
+      <div class="sidebar-bottom"><div class="network-note"><span id="network-icon"></span><strong>Close to home.</strong><p>Your files, available on<br>your own local network.</p></div><div class="version"><span>loc.in for your network</span><span>v1.0.1</span></div></div>
+    </aside>
+    <div class="main-shell">
+      <header class="topbar"><div class="topbar-location"><span id="topbar-icon"></span><span>Your workspace</span><span class="slash">/</span><strong id="page-label">Home</strong></div><div class="topbar-right"><span class="local-badge"><span class="tiny-dot"></span> Local network</span><span class="avatar" aria-label="Host computer" id="role-avatar">H</span></div></header>
+      <main id="content"><div class="loading">Opening your local space…</div></main>
+      <footer><span><span class="tiny-dot"></span> Made for the network you call home.</span><span>Install. Connect. Start.</span></footer>
+    </div>
+  </div>
+  <div id="toast" class="toast" role="status" hidden></div>
+  <dialog id="dialog"><div id="dialog-content"></div></dialog>
+  <input id="file-picker" type="file" multiple hidden>
+  <input id="oauth-picker" type="file" accept=".json,application/json" hidden>
+</body>
+</html>

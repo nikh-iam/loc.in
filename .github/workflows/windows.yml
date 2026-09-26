@@ -1,0 +1,30 @@
+name: Windows build and tests
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m venv .venv
+      - run: .\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+      - run: .\.venv\Scripts\python.exe -m pytest -q
+      - run: node --check frontend/app.js
+      - name: Build unconfigured preview
+        shell: pwsh
+        run: ./packaging/build.ps1 -DevelopmentBuild -SkipInstaller
+      - name: Smoke test portable executable
+        shell: pwsh
+        run: |
+          $env:LOCIN_DATA_DIR = Join-Path $env:RUNNER_TEMP 'locin-smoke'
+          $process = Start-Process -FilePath dist/locin/locin.exe -ArgumentList '--smoke-test' -Wait -PassThru -WindowStyle Hidden
+          if ($process.ExitCode -ne 0) { throw 'Packaged smoke test failed.' }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: locin-windows-preview
+          path: dist/locin/

@@ -1,0 +1,17 @@
+.venv/
+.tools/
+__pycache__/
+.pytest_cache/
+*.pyc
+data/
+build/
+dist/
+release/
+oauth-client.json
+client_secret*.json
+credentials*.json
+token*.json
+.env
+.env.*
+!.env.example
+*.log

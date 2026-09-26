@@ -1,0 +1,35 @@
+name: Branch flow
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, edited]
+permissions:
+  contents: read
+jobs:
+  branch-flow:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check promotion order
+        env:
+          HEAD_BRANCH: ${{ github.head_ref }}
+          BASE_BRANCH: ${{ github.base_ref }}
+        shell: bash
+        run: |
+          case "$BASE_BRANCH" in
+            dev)
+              case "$HEAD_BRANCH" in
+                feat/?*|dev/?*|release/?*) exit 0 ;;
+              esac
+              ;;
+            release/?*)
+              case "$HEAD_BRANCH" in
+                dev) exit 0 ;;
+              esac
+              ;;
+            master)
+              case "$HEAD_BRANCH" in
+                release/?*) exit 0 ;;
+              esac
+              ;;
+          esac
+          echo "::error::Use feat/<change> -> dev -> release/<version> -> master. Release fixes may return to dev."
+          exit 1
