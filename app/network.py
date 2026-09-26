@@ -62,7 +62,9 @@ class Gateway:
             self.state, self.error, self.warning = 'Starting', None, None
             listener = None
             try:
-                if not self.runtime.drive.credentials or not self.runtime.db.settings()['folder_id']:
+                if self.runtime.db.settings()['storage_mode'] == 'local':
+                    self.runtime.local.root()
+                elif not self.runtime.drive.credentials or not self.runtime.db.settings()['folder_id']:
                     raise RuntimeError('Connect Google Drive and choose a folder first.')
                 self.ip, self.subnet = local_interface()
                 for port in (80, 8000):

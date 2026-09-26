@@ -9,13 +9,34 @@
   <script src="/assets/app.js" defer></script>
 </head>
 <body>
-  <div class="app">
+  <section id="preloader" class="preloader" aria-label="Opening loc.in">
+    <div class="startup-content">
+      <svg class="startup-art" viewBox="0 0 400 320" aria-hidden="true">
+        <defs>
+          <linearGradient id="folder-back" x2="1" y2="1"><stop stop-color="#c4d4a8"/><stop offset="1" stop-color="#789455"/></linearGradient>
+          <linearGradient id="folder-front" x2=".8" y2="1"><stop stop-color="#e2ebcf"/><stop offset="1" stop-color="#95ad73"/></linearGradient>
+        </defs>
+        <g class="startup-rings"><circle cx="200" cy="160" r="126"/><circle cx="200" cy="160" r="146"/></g>
+        <g class="startup-orbit"><circle cx="200" cy="34" r="5"/><circle cx="309" cy="223" r="5"/><circle cx="91" cy="223" r="5"/></g>
+        <g class="startup-folder"><path d="M123 111V92Q123 83 134 85L177 94L190 107L274 124Q284 126 282 137L270 222Q268 233 257 230L125 202Q115 200 116 188Z" fill="url(#folder-back)"/><path d="M113 113L266 144Q277 146 275 157L263 231Q261 243 249 240L118 212Q107 210 107 199L103 125Q102 111 113 113Z" fill="url(#folder-front)"/><path d="M113 118L261 148Q270 150 269 159" stroke="#f0f5e7" opacity=".8"/></g>
+        <g class="startup-node"><circle cx="200" cy="37" r="32"/><path d="M185 45a9 9 0 1 1 1-18 13 13 0 0 1 24-1 10 10 0 0 1 2 19Z"/></g>
+        <g class="startup-node"><circle cx="83" cy="232" r="32"/><path d="M66 237v-22h33v22m-38 6 5-6h33l5 6Z"/></g>
+        <g class="startup-node"><circle cx="317" cy="232" r="32"/><rect x="307" y="213" width="20" height="36" rx="4"/><path d="M313 218h8m-6 26h4"/></g>
+      </svg>
+      <div class="startup-brand">loc.in<span>.</span></div>
+      <h1>Your files. Your network.</h1>
+      <p class="startup-tagline">Google Drive or local storage.<br>One shared space, a little closer.</p>
+      <div class="startup-status" role="status"><span class="startup-dots" aria-hidden="true"><i></i><i></i><i></i></span>Opening your local space…</div>
+    </div>
+  </section>
+  <noscript><style>.preloader{display:none}</style><p>Enable JavaScript to open loc.in and access your shared files.</p></noscript>
+  <div class="app" inert aria-busy="true">
     <aside class="sidebar">
       <a class="brand" href="/" aria-label="loc.in home"><span class="brand-icon">l<span>↗</span></span>loc.in<span class="brand-dot">●</span></a>
       <div class="workspace"><span class="workspace-icon" id="workspace-icon"></span><div><strong>Your local space</strong><small id="workspace-label">A home for your Drive</small></div><span class="tiny-dot"></span></div>
       <div class="nav-label">WORKSPACE</div>
       <nav id="navigation" aria-label="Main navigation"></nav>
-      <div class="sidebar-bottom"><div class="network-note"><span id="network-icon"></span><strong>Close to home.</strong><p>Your files, available on<br>your own local network.</p></div><div class="version"><span>loc.in for your network</span><span>v1.0.1</span></div></div>
+      <div class="sidebar-bottom"><div class="network-note"><span id="network-icon"></span><strong>Close to home.</strong><p>Your files, available on<br>your own local network.</p></div><div class="version"><span>loc.in for your network</span><span>v1.1.1</span></div></div>
     </aside>
     <div class="main-shell">
       <header class="topbar"><div class="topbar-location"><span id="topbar-icon"></span><span>Your workspace</span><span class="slash">/</span><strong id="page-label">Home</strong></div><div class="topbar-right"><span class="local-badge"><span class="tiny-dot"></span> Local network</span><span class="avatar" aria-label="Host computer" id="role-avatar">H</span></div></header>

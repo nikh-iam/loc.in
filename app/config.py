@@ -9,7 +9,8 @@ DATA = Path(os.environ.get('LOCIN_DATA_DIR', str(Path(os.environ.get('LOCALAPPDA
 FOLDER = 'application/vnd.google-apps.folder'
 CHUNK = 4 * 1024 * 1024
 CONTROL_PORT = 4028
-DEFAULTS = {'local_name': 'locin', 'folder_id': '', 'folder_name': 'loc.in', 'start_at_login': False}
+DEFAULTS = {'local_name': 'locin', 'folder_id': '', 'folder_name': 'loc.in', 'start_at_login': False,
+            'storage_mode': 'drive', 'local_folder': ''}
 
 
 def valid_id(value):

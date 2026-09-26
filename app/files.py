@@ -1,6 +1,7 @@
 """Shared file API for the loopback host and LAN client."""
 import threading
 import time
+from functools import wraps
 import anyio
 from urllib.parse import quote
 from fastapi import APIRouter, HTTPException, Request
@@ -22,38 +23,55 @@ class UploadInput(FolderInput):
 
 def routes(runtime, host):
     router = APIRouter()
-    db, drive, transfers = runtime.db, runtime.drive, runtime.transfers
+    db, transfers = runtime.db, runtime.transfers
+
+    def storage_operation(function):
+        @wraps(function)
+        def locked(*args, **kwargs):
+            with runtime.settings_lock:
+                return function(*args, **kwargs)
+        return locked
 
     def owner(request):
         return 'host' if host else request.state.device
 
     @router.get('/api/files')
+    @storage_operation
     def listing(parent: str = '', page: str = '', search: str = ''):
-        root = db.settings()['folder_id']
+        drive, root = runtime.storage, runtime.storage_root
         parent = parent or root
         drive.contained(parent, root, folder=True)
         return drive.listing(parent, page or None, search[:200])
 
     @router.post('/api/folders')
+    @storage_operation
     def create_folder(body: FolderInput):
-        parent = body.parent or db.settings()['folder_id']
-        drive.contained(parent, db.settings()['folder_id'], folder=True)
+        drive, root = runtime.storage, runtime.storage_root
+        parent = body.parent or root
+        drive.contained(parent, root, folder=True)
         return drive.create_folder(parent, valid_name(body.name))
 
     @router.post('/api/files/upload')
+    @storage_operation
     def begin_upload(body: UploadInput, request: Request):
-        parent = body.parent or db.settings()['folder_id']
-        drive.contained(parent, db.settings()['folder_id'], folder=True)
+        drive, root = runtime.storage, runtime.storage_root
+        parent = body.parent or root
+        drive.contained(parent, root, folder=True)
         name = valid_name(body.name)
         if any(ord(c) < 32 for c in body.mime):
             raise HTTPException(400, 'Invalid file type.')
         transfers.reap()
         with transfers.lock:
             key = transfers.begin(name, owner(request), 'upload', body.size)
-            item = {'url': None, 'parent': parent, 'offset': 0, 'size': body.size, 'owner': owner(request), 'touched': time.time(), 'lock': threading.Lock()}
+            item = {'url': None, 'parent': parent, 'root': root, 'storage': drive,
+                    'cleanup': getattr(drive, 'cancel_upload', None), 'offset': 0, 'size': body.size,
+                    'owner': owner(request), 'touched': time.time(), 'lock': threading.Lock()}
             transfers.uploads[key] = item
         try:
-            item['url'] = drive.upload_session(parent, name, body.size, body.mime)
+            with transfers.lock:
+                if key not in transfers.uploads:
+                    raise HTTPException(409, 'Upload cancelled before it started.')
+                item['url'] = drive.upload_session(parent, name, body.size, body.mime)
             return {'id': key, 'chunk_size': CHUNK}
         except Exception:
             transfers.finish(key, 'Failed', 'Could not start upload.')
@@ -82,10 +100,11 @@ def routes(runtime, host):
                     body.extend(chunk)
             if len(body) != expected:
                 raise HTTPException(400, 'Incomplete upload chunk.')
-            await run_in_threadpool(drive.contained, item['parent'], db.settings()['folder_id'], True)
+            drive = item['storage']
+            await run_in_threadpool(drive.contained, item['parent'], item['root'], True)
             count, complete = await run_in_threadpool(drive.upload_chunk, item['url'], bytes(body), offset, item['size'])
             if count != offset + len(body) or (complete and count != item['size']):
-                raise HTTPException(502, 'Google Drive did not acknowledge the complete chunk. Please restart the upload.')
+                raise HTTPException(502, 'Storage did not acknowledge the complete chunk. Please restart the upload.')
             item['offset'], item['touched'] = count, time.time()
             transfers.progress(key, count)
             if complete:
@@ -112,10 +131,12 @@ def routes(runtime, host):
         return {'ok': True}
 
     @router.get('/api/files/{file_id}/download')
+    @storage_operation
     def download(file_id: str, request: Request):
-        metadata = drive.contained(file_id, db.settings()['folder_id'])
+        drive = runtime.storage
+        metadata = drive.contained(file_id, runtime.storage_root)
         with transfers.lock:
-            key = transfers.begin(metadata['name'], owner(request), 'download', int(metadata.get('size', 0)))
+            key = transfers.begin(metadata['name'], owner(request), 'download', int(metadata.get('size') or 0))
         try:
             client, response, filename, mime = drive.download(metadata)
         except Exception:
