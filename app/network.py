@@ -48,12 +48,18 @@ class Gateway:
     def address(self):
         name = self.runtime.db.settings()['local_name']
         suffix = '' if self.port == 80 else f':{self.port}'
-        return f'http://{name}.loc.in{suffix}'
+        return f'http://{name}.local{suffix}'
 
-    def discovery_address(self):
+    def custom_address(self):
         name = self.runtime.db.settings()['local_name']
         suffix = '' if self.port == 80 else f':{self.port}'
-        return f'http://{name}.local{suffix}'
+        return f'http://{name}.loc.in{suffix}'
+
+    def fallback(self):
+        if not self.ip:
+            return None
+        suffix = '' if self.port == 80 else f':{self.port}'
+        return f'http://{self.ip}{suffix}'
 
     def start(self):
         with self.lock:

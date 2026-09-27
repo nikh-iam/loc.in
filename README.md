@@ -24,7 +24,7 @@ An animated opening screen brings the folder and network artwork to life while l
 
 ## Choose your storage
 
-Both storage choices use the same setup layout and the same configured `.loc.in` address. A fresh local installation has no selected storage folder; choose an existing folder to serve before starting. An unavailable-folder warning appears only if a previously selected folder can no longer be accessed.
+Both storage choices use the same setup layout and the same automatic `.local` address. A fresh local installation has no selected storage folder; choose an existing folder to serve before starting. An unavailable-folder warning appears only if a previously selected folder can no longer be accessed.
 
 | Option | Where files live | Internet needed? |
 | --- | --- | --- |
@@ -50,7 +50,7 @@ This repository implements the MVP and includes a Windows desktop launcher, tray
 
 Before real Drive access, import a Google Desktop OAuth client through the installed app, or bundle the publisher's configuration as described below. Automated backend and browser tests use a synthetic Drive adapter only under `tests/`; live Google consent, real large-file transfers, and discovery from a second physical device must still be verified before release.
 
-## Set up Google Drive in the installed app (v1.2.0)
+## Set up Google Drive in the installed app (v1.3.0)
 
 If you see a message about missing Google configuration, the installer has no publisher OAuth client bundled. You do not need to install Python or rebuild the app:
 
@@ -62,7 +62,7 @@ If you see a message about missing Google configuration, the installer has no pu
 6. In loc.in, choose **Settings → Import Google JSON** and select that downloaded file. The same import is available from the first-run Connect dialog and About. The configuration is validated and kept in Windows Credential Manager. No restart or rebuild is needed.
 7. Click **Connect Google Drive**, finish Google's consent flow in your browser, and return to loc.in.
 8. Enter a local name such as `vault`, choose **My Drive / loc.in** or an existing folder, then click **Start loc.in**.
-9. Keep the host awake and connected to the internet. On another device on the same allowed local subnet, open the IP fallback, the automatic `vault.local` address if supported, or `vault.loc.in` after configuring internal DNS below.
+9. Keep the host awake. On another device on the same allowed subnet, open your configured address, such as `http://vault.local`, or scan the QR code on Home. Google Drive also needs internet access.
 
 Google's current workflow is documented in [Create access credentials](https://developers.google.com/workspace/guides/create-credentials). Do not send your JSON file, client secret, or refresh token in chat.
 
@@ -78,27 +78,17 @@ If Google says **“loc.in has not completed the Google verification process”*
 
 You can test with approved test users without first completing public verification. Public distribution with this app's restricted Drive scope requires the applicable Google verification; switching the audience to Production is not a substitute. See [Google's audience settings](https://support.google.com/cloud/answer/15549945) and [verification exceptions for testing/internal apps](https://support.google.com/cloud/answer/13464323).
 
-## Configure custom-name.loc.in on your internal DNS
+## Connect from another device
 
-The preferred address is now **`http://vault.loc.in`**. This is a conventional DNS name, so it needs a record on the DNS server your devices use. The app does not own or register subdomains under `loc.in`, and it does not change your router automatically. Since you can manage internal/router DNS:
+Start loc.in, join the same Wi-Fi or LAN on your phone, tablet, or computer, and open the `.local` address shown on Home. No router configuration or client installation is required.
 
-1. Reserve the host's current local IP in your router's DHCP settings, for example `192.168.1.20`.
-2. Add a local DNS host override or A record:
+If your device cannot resolve the name, use the direct IP link or **Share / QR code** on Home. The QR code contains only the local IP URL, never credentials. Keep any displayed port suffix. The host must stay awake and the network must allow devices to communicate; guest isolation, VPNs, and firewall restrictions can prevent access. After changing networks, stop and start loc.in to refresh its address.
 
-   | Setting | Example |
-   | --- | --- |
-   | Record name | `vault.loc.in` (or `vault` within an internal `loc.in` zone) |
-   | Type | `A` |
-   | Address | `192.168.1.20` — replace with the host IP shown in loc.in |
+The gateway tries port 80, then 8000 if port 80 is unavailable or needs privileges. Both the local name and IP URL include the actual port. Do not run as administrator just to remove the suffix.
 
-3. Ensure client devices use this internal DNS server. Browser secure DNS or a VPN can bypass router DNS; use the organization's approved resolver configuration.
-4. Open **`http://vault.loc.in`** from an allowed local device. If loc.in shows port 8000, use **`http://vault.loc.in:8000`**; an A record does not encode a port. This build serves HTTP, not HTTPS.
+Optional: an administrator can map `vault.loc.in` to the host IP in internal DNS. This is not required for normal use and is not automatically configured by loc.in.
 
-Configure only the internal override needed for your gateway. Do not publish private host addresses to public DNS or change internet-facing/router forwarding settings. The app still advertises **`vault.local`** through mDNS and accepts the numeric IP fallback. `.local` is a special local-discovery namespace; `.loc.in` is not. See [RFC 6762](https://www.rfc-editor.org/info/rfc6762/).
-
-Use `custom-name`, not `custom_name`: DNS host labels here accept letters, numbers and hyphens, not underscores. The Home **Open loc.in** button uses the IP fallback so you can open it before custom DNS is configured; **Copy local address** copies the preferred `.loc.in` address.
-
-For example, if the host IP is `192.168.1.33`, choose **home** in loc.in and configure the router/internal DNS record **`home.loc.in → 192.168.1.33`**. Joining Wi-Fi alone does not create this record. Clients must receive/use the internal DNS resolver; enter **`http://home.loc.in`** in the browser address bar. Home → Setup instructions → **Check domain on this host** checks the configured name against the host's current IP. A successful check on the host does not prove every client is using the same DNS server.
+Clients use a browser on Windows, macOS, Linux, Android, or iOS. The bundled installer is for Windows hosts; other desktop host platforms require their own packaging and validation.
 
 ## Access inside an organization
 
@@ -176,11 +166,11 @@ Do not paste tokens into source files or logs. The desktop OAuth client configur
 ## Local network behavior
 
 - Host controls bind only to `127.0.0.1:4028` and require the launcher's session token. OAuth and settings endpoints do not exist on the LAN app.
-- Start chooses the active private IPv4 adapter, binds the gateway to that specific address, and advertises an HTTP service and `.local` hostname using multicast DNS.
-- Port 80 gives `http://vault.loc.in` after internal DNS is configured. If unavailable, the app uses port 8000 and displays **`http://vault.loc.in:8000`**. The automatic `vault.local` alternative uses the same port. mDNS does not remove the need for a port suffix.
-- The host also shows the numeric IP fallback, using the actual listening port.
+- Start binds to the active private IPv4 adapter and advertises the chosen `.local` name using mDNS.
+- The gateway uses port 80 when available, otherwise 8000. All displayed links use the actual port.
+- Home shows a direct IP fallback and QR code for devices without local discovery.
 - The installer adds program-specific Windows Firewall rules for Private/Domain profiles and local-subnet peers only. It does not change router settings, configure DNS, or enable port forwarding.
-- On guest Wi-Fi, with client isolation, or on networks/devices that block multicast DNS, use the numeric fallback or move to a network that allows devices to communicate. Windows must use the **Private** or **Domain** profile for the installer's firewall rules to apply.
+- Client isolation and firewall rules can prevent access even with correct DNS. Use a network that allows client-to-host communication. Windows must use the Private or Domain profile for the installer firewall rules.
 - After changing Wi-Fi/adapters or the computer's IP address, stop and restart the gateway so it binds and advertises the new address. Multiple routed subnets and IPv6 are outside this version's scope.
 - Internet loss does not prevent the local interface or status pages from loading. Drive operations show a recoverable error. Local storage continues to browse and transfer files without internet access.
 
@@ -258,7 +248,7 @@ app/
   files.py       Listings, folders, chunked uploads, streamed downloads
   transfers.py   Concurrency and transfer history
   devices.py     Recently active clients
-  network.py     Gateway lifecycle, adapter selection, mDNS
+  network.py     Gateway lifecycle, adapter selection, HTTP listener
   database.py    SQLite settings/devices/transfers
   config.py      Paths and validation
   startup.py     Windows sign-in startup option
@@ -273,8 +263,12 @@ Settings, device metadata and transfer history live in `%LOCALAPPDATA%/loc.in/lo
 ## Before production release
 
 - Supply and verify the publisher OAuth application, then test real sign-in, refresh, revoked access and reconnection.
-- Test `.local` discovery and IP fallback from a physical phone and laptop on the intended private Wi-Fi, including port 80 contention.
+- Test the automatic .local name and direct IP/QR fallback from a physical phone and laptop, including port 80 contention.
 - Validate a multi-gigabyte upload/download, internet interruption, cancellation and several concurrent devices against real Drive.
 - Build with supported Python, sign the app/installer, and test install, tray behavior, downloads, startup and uninstall on clean Windows 10/11 with WebView2.
 
 Optional device approval, device renaming, file deletion, recursive search, multiple accounts and advanced administration are not part of this MVP.
+
+### File previews
+
+Click a file to preview PNG, JPEG, GIF, WebP, plain text, CSV, or JSON files up to 10 MB. Other formats, including PDF and Office documents, can be downloaded. Folder passwords also protect previews. Text is displayed as text, never executed as HTML. The desktop window opens maximized; the sidebar and desktop icon share the same logo artwork.

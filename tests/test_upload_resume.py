@@ -50,7 +50,7 @@ def test_status_hides_sessions_from_other_devices(lan, runtime):
     from fastapi.testclient import TestClient
     from app.main import create_app
     key = start_upload(lan, 1)
-    with TestClient(create_app(runtime, host=False), base_url='http://locin.local', client=('192.168.10.9', 1)) as other:
+    with TestClient(create_app(runtime, host=False), base_url='http://locin.loc.in', client=('192.168.10.9', 1)) as other:
         assert other.get(f'/api/files/upload/{key}').status_code == 404
         assert lan.put(f'/api/files/upload/{key}', content=b'x').status_code == 200
         assert other.get(f'/api/files/upload/{key}').status_code == 404

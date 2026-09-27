@@ -12,7 +12,7 @@ def client(runtime):
     runtime.gateway.ip='192.168.10.2'
     runtime.gateway.subnet='192.168.10.0/24'
     runtime.gateway.state='Running'
-    return TestClient(create_app(runtime,host=False),base_url='http://locin.local',client=('192.168.10.3',1234),headers={'X-Locin-Request':'1'})
+    return TestClient(create_app(runtime,host=False),base_url='http://locin.loc.in',client=('192.168.10.3',1234),headers={'X-Locin-Request':'1'})
 
 
 def test_root_protects_all_operations_and_unlocks(host,runtime):
@@ -96,7 +96,7 @@ def test_new_local_setup_has_no_error_or_automatic_folder(host,runtime):
 def test_one_domain_persists_between_storage_modes(host):
     assert host.put('/api/settings',json={'storage_mode':'local','local_name':'home'}).status_code==200
     assert host.put('/api/settings',json={'storage_mode':'drive','local_name':'home'}).status_code==200
-    assert host.get('/api/status').json()['address']=='http://home.loc.in'
+    assert host.get('/api/status').json()['address']=='http://home.local'
 
 
 def test_upload_grant_expiry_preserves_resume_session(host,runtime):
@@ -117,5 +117,5 @@ def test_cookie_cannot_unlock_other_device(host,runtime):
     with client(runtime) as lan:
         lan.post('/api/folders/unlock',json={'folder_id':'shared','password':'my-password'})
         token=lan.cookies.get('locin_folders')
-        with TestClient(create_app(runtime,host=False),base_url='http://locin.local',client=('192.168.10.9',1234),cookies={'locin_folders':token}) as other:
+        with TestClient(create_app(runtime,host=False),base_url='http://locin.loc.in',client=('192.168.10.9',1234),cookies={'locin_folders':token}) as other:
             assert other.get('/api/files').status_code==423
