@@ -9,6 +9,9 @@ from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 from .config import CHUNK, valid_name
+from .drive import DriveError
+from .locks import FolderLocked
+from starlette.requests import ClientDisconnect
 
 
 class FolderInput(BaseModel):
@@ -37,18 +40,24 @@ def routes(runtime, host):
 
     @router.get('/api/files')
     @storage_operation
-    def listing(parent: str = '', page: str = '', search: str = ''):
+    def listing(request: Request, parent: str = '', page: str = '', search: str = ''):
         drive, root = runtime.storage, runtime.storage_root
         parent = parent or root
         drive.contained(parent, root, folder=True)
-        return drive.listing(parent, page or None, search[:200])
+        runtime.folder_locks.check(drive, root, parent, request, host)
+        result = drive.listing(parent, page or None, search[:200])
+        locks = runtime.folder_locks.records()
+        for item in result['files']:
+            item['locked'] = item['id'] in locks
+        return result
 
     @router.post('/api/folders')
     @storage_operation
-    def create_folder(body: FolderInput):
+    def create_folder(body: FolderInput, request: Request):
         drive, root = runtime.storage, runtime.storage_root
         parent = body.parent or root
         drive.contained(parent, root, folder=True)
+        runtime.folder_locks.check(drive, root, parent, request, host)
         return drive.create_folder(parent, valid_name(body.name))
 
     @router.post('/api/files/upload')
@@ -57,6 +66,7 @@ def routes(runtime, host):
         drive, root = runtime.storage, runtime.storage_root
         parent = body.parent or root
         drive.contained(parent, root, folder=True)
+        runtime.folder_locks.check(drive, root, parent, request, host)
         name = valid_name(body.name)
         if any(ord(c) < 32 for c in body.mime):
             raise HTTPException(400, 'Invalid file type.')
@@ -83,14 +93,55 @@ def routes(runtime, host):
             raise HTTPException(404, 'Upload not found.')
         return item
 
+    def synchronize(key, item):
+        if item.get('needs_sync'):
+            count, complete = item['storage'].upload_status(item['url'], item['size'])
+            if not item['offset'] <= count <= item['size'] or (complete and count != item['size']):
+                raise HTTPException(502, 'Storage returned an invalid upload offset.')
+            item['offset'], item['needs_sync'] = count, count == item['size'] and not complete
+            transfers.progress(key, count)
+            if complete:
+                transfers.finish(key)
+            return complete
+        return False
+
+    @router.get('/api/files/upload/{key}')
+    def upload_status(key: str, request: Request):
+        if key not in transfers.uploads:
+            with db.connect() as connection:
+                row = connection.execute('SELECT total FROM transfers WHERE id=? AND device=? AND direction=? AND status=?',
+                                         (key, owner(request), 'upload', 'Completed')).fetchone()
+            if row:
+                return {'transferred': row['total'], 'completed': True, 'chunk_size': CHUNK}
+        item = get_upload(key, request)
+        if not item['lock'].acquire(blocking=False):
+            raise HTTPException(409, 'A chunk is still processing. Retry shortly.')
+        try:
+            item['storage'].contained(item['parent'], item['root'], True)
+            runtime.folder_locks.check(item['storage'], item['root'], item['parent'], request, host)
+            complete = synchronize(key, item)
+            item['touched'] = time.time()
+            return {'transferred': item['offset'], 'completed': complete, 'chunk_size': CHUNK}
+        except (DriveError, HTTPException) as exc:
+            status = exc.status if isinstance(exc, DriveError) else exc.status_code
+            if status < 500 and status not in (408, 409, 429):
+                transfers.finish(key, 'Failed', 'Upload session is no longer available.')
+            raise
+        finally:
+            item['lock'].release()
+
     @router.put('/api/files/upload/{key}')
     async def upload_chunk(key: str, request: Request, offset: int = 0):
         item = get_upload(key, request)
         if not item['lock'].acquire(blocking=False):
             raise HTTPException(409, 'A chunk is already being uploaded.')
         try:
+            await run_in_threadpool(item['storage'].contained, item['parent'], item['root'], True)
+            await run_in_threadpool(runtime.folder_locks.check, item['storage'], item['root'], item['parent'], request, host)
+            if await run_in_threadpool(synchronize, key, item):
+                return {'transferred': item['size'], 'completed': True}
             if offset != item['offset']:
-                raise HTTPException(409, 'Upload offset does not match. Restart the upload.')
+                raise HTTPException(409, 'Upload offset changed. Check upload status and resume.')
             expected = min(CHUNK, item['size'] - offset)
             body = bytearray()
             with anyio.fail_after(120):
@@ -101,18 +152,27 @@ def routes(runtime, host):
             if len(body) != expected:
                 raise HTTPException(400, 'Incomplete upload chunk.')
             drive = item['storage']
-            await run_in_threadpool(drive.contained, item['parent'], item['root'], True)
+            item['needs_sync'] = True
             count, complete = await run_in_threadpool(drive.upload_chunk, item['url'], bytes(body), offset, item['size'])
-            if count != offset + len(body) or (complete and count != item['size']):
+            if not offset <= count <= offset + len(body) or (complete and count != item['size']):
                 raise HTTPException(502, 'Storage did not acknowledge the complete chunk. Please restart the upload.')
+            item['needs_sync'] = count == item['size'] and not complete
             item['offset'], item['touched'] = count, time.time()
             transfers.progress(key, count)
             if complete:
                 transfers.finish(key)
             return {'transferred': count, 'completed': complete}
         except TimeoutError:
-            transfers.finish(key, 'Failed', 'Upload timed out. Please retry the file.')
-            raise HTTPException(408, 'Upload chunk timed out. Please retry the file.')
+            raise HTTPException(408, 'Upload chunk timed out. Resume to retry this chunk.')
+        except ClientDisconnect:
+            raise HTTPException(408, 'Connection interrupted. Resume this upload.')
+        except FolderLocked:
+            raise
+        except (DriveError, HTTPException) as exc:
+            status = exc.status if isinstance(exc, DriveError) else exc.status_code
+            if status not in (408, 409, 429) and status < 500:
+                transfers.finish(key, 'Failed', 'Upload cannot continue. Check storage and retry.')
+            raise
         except BaseException:
             transfers.finish(key, 'Failed', 'Upload interrupted. Please retry the file.')
             raise
@@ -135,6 +195,7 @@ def routes(runtime, host):
     def download(file_id: str, request: Request):
         drive = runtime.storage
         metadata = drive.contained(file_id, runtime.storage_root)
+        runtime.folder_locks.check(drive, runtime.storage_root, file_id, request, host)
         with transfers.lock:
             key = transfers.begin(metadata['name'], owner(request), 'download', int(metadata.get('size') or 0))
         try:

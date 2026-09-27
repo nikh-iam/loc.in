@@ -24,6 +24,8 @@ An animated opening screen brings the folder and network artwork to life while l
 
 ## Choose your storage
 
+Both storage choices use the same setup layout and the same configured `.loc.in` address. A fresh local installation has no selected storage folder; choose an existing folder to serve before starting. An unavailable-folder warning appears only if a previously selected folder can no longer be accessed.
+
 | Option | Where files live | Internet needed? |
 | --- | --- | --- |
 | **Cloud · Google Drive (recommended)** | Your selected Google Drive folder | Yes, for file operations |
@@ -48,7 +50,7 @@ This repository implements the MVP and includes a Windows desktop launcher, tray
 
 Before real Drive access, import a Google Desktop OAuth client through the installed app, or bundle the publisher's configuration as described below. Automated backend and browser tests use a synthetic Drive adapter only under `tests/`; live Google consent, real large-file transfers, and discovery from a second physical device must still be verified before release.
 
-## Set up Google Drive in the installed app (v1.1.1)
+## Set up Google Drive in the installed app (v1.2.0)
 
 If you see a message about missing Google configuration, the installer has no publisher OAuth client bundled. You do not need to install Python or rebuild the app:
 
@@ -96,9 +98,11 @@ Configure only the internal override needed for your gateway. Do not publish pri
 
 Use `custom-name`, not `custom_name`: DNS host labels here accept letters, numbers and hyphens, not underscores. The Home **Open loc.in** button uses the IP fallback so you can open it before custom DNS is configured; **Copy local address** copies the preferred `.loc.in` address.
 
+For example, if the host IP is `192.168.1.33`, choose **home** in loc.in and configure the router/internal DNS record **`home.loc.in → 192.168.1.33`**. Joining Wi-Fi alone does not create this record. Clients must receive/use the internal DNS resolver; enter **`http://home.loc.in`** in the browser address bar. Home → Setup instructions → **Check domain on this host** checks the configured name against the host's current IP. A successful check on the host does not prove every client is using the same DNS server.
+
 ## Access inside an organization
 
-Yes, loc.in can serve an office LAN, but access is based on **network reachability and the host's selected local subnet**, not organization or employee identity. Any device on that allowed subnet that can reach the gateway can browse, upload and download the shared folder. There is currently no client login, device approval, or employee verification.
+Yes, loc.in can serve an office LAN, but access is based on **network reachability and the host's selected local subnet**, not organization or employee identity. Devices on that allowed subnet can browse, upload and download unprotected content. Protected folders require their folder password. There is currently no client login, device approval, or employee verification.
 
 Other VLANs, branches, routed subnets, guest networks and VPN clients are not automatically included. The Windows installer permits local-subnet traffic on Private and Domain profiles; organizational firewall/group policies can still override it. The app does not expose an internet-facing service. Local file traffic uses HTTP, so use a trusted network. Choosing Internal in Google's OAuth audience controls who may authorize the Google account; it does **not** add employee authentication to the LAN client.
 
@@ -182,13 +186,25 @@ Do not paste tokens into source files or logs. The desktop OAuth client configur
 
 ## Files and transfers
 
+### Password-protected folders
+
+Stop sharing and finish active transfers before changing protection. In **Files**, choose **Protect folder** beside a folder; in **Settings**, choose **Protect shared folder** to protect the whole shared root. Set a password of at least eight characters. **Manage password** lets the host replace the password or remove protection.
+
+Visitors enter the password to access a protected folder. Protection covers descendant folders, direct downloads, folder creation, uploads, and upload-resume requests for both Google Drive and local storage. Nested protected folders may require more than one password. An unlock lasts 30 minutes for that browser/device; password changes revoke prior unlocks. Password guesses are limited to ten attempts per visitor in five minutes. Passwords are stored as salted scrypt hashes, not plaintext.
+
+The host retains access through its authenticated control interface and can reset a forgotten password. This is gateway access protection, not disk encryption or a Google Drive permissions change. Local traffic still uses HTTP: use a trusted LAN. Folder passwords do not protect against someone who can intercept that traffic or access the host directly.
+
 Only the selected root and its descendants are reachable through client file APIs. Folder listings load up to 100 items and support a next-page cursor. Search applies to the **current folder**, including pages of results. Clients can upload, download, and create folders. Delete is intentionally not enabled in this version.
 
 Uploads use browser `Blob.slice` and **4 MiB** chunks sent to the host. In Google Drive mode, the host forwards them to a resumable session without writing upload contents to disk or exposing Google's session URL. In local mode, chunks go to an OS-managed temporary file in the chosen folder, then a bounded-memory copy creates the completed file without overwriting an existing name. Finalization can temporarily need twice the file size in free disk space. Temporary files are hidden from gateway listings and removed on completion, cancellation, timeout, or process exit. A host interruption during the final copy can leave a partial destination file; remove or rename it before retrying. Uploaded contents never enter SQLite. Empty files are supported. Three uploads/downloads may be active across all devices; the browser queues its own selected files sequentially. A fourth device transfer gets a clear retry message. See [Google's resumable-upload protocol](https://developers.google.com/workspace/drive/api/guides/manage-uploads).
 
 Downloads stream in 4 MiB blocks. Google Docs export to PDF, Sheets to XLSX, and Slides to PPTX; Google's export limits still apply. Shortcuts and other native Google file types are not downloadable here. A completed download means the host finished streaming to the browser, not that the user selected a final disk location.
 
-Uploads can be cancelled between chunks. Interrupted uploads must be selected again; resuming across browser or host restarts is not implemented. Idle upload sessions expire locally after ten minutes; uncommitted Google sessions expire at Google. Download cancellation uses the browser's download controls. Transfer history persists locally, while in-progress entries become Failed after a host restart. Clients see their own transfer history; the host sees all activity.
+Uploads can be paused, resumed, or cancelled between chunks from Transfers. Transient connection failures and Drive rate limits trigger up to five retries with increasing delays. Before retrying, the host checks the acknowledged byte offset, including when Drive received a chunk but its reply was lost. Only remaining bytes are sent; progress reflects acknowledged data. After retries are exhausted, click **Resume upload**.
+
+After reloading the same browser tab, select the **same unchanged file** in the same folder to resume; the browser remembers the session ID using the file name, size, and last-modified timestamp. File contents and Google session URLs are not saved in browser storage. Keep the host running, use the same gateway address/browser/device, and resume within **ten minutes of inactivity**. Closing the tab, changing the file, changing device identity/IP, stopping/restarting the service, or an expired Google session may require starting again. This is not a persistent upload queue across host restarts. Up to three unfinished uploads/downloads hold transfer slots; cancel unused paused uploads to free capacity.
+
+Download cancellation uses the browser's download controls. Transfer history persists locally, while in-progress entries become Failed after a host restart. Clients see their own transfer history; the host sees all activity.
 
 Devices appear after recent API communication and expire from the active list after 60 seconds. Names are inferred from browser user-agent strings, and identity combines IP and user agent; this is intentionally approximate and does not scan the Wi-Fi network. Background browser tabs may become inactive.
 
@@ -212,7 +228,7 @@ Outputs:
 - `dist/locin/locin.exe` — portable app; keep the entire `dist/locin` directory together.
 - `release/loc.in Setup.exe` — installer, after compiling with Inno Setup.
 
-The build runs tests, bundles Python using PyInstaller, and checks the resulting windowless executable with an isolated startup test before compiling the installer. The installer creates shortcuts, installs the private-network firewall rules, and offers to launch the app unelevated. Start with Windows is configured per user after installation; turn it off before uninstalling. Code signing, OAuth verification, and testing on a clean Windows machine are release tasks; development artifacts are unsigned.
+The build runs tests, bundles Python using PyInstaller, and checks the resulting windowless executable with an isolated startup test before compiling the installer. The installer creates shortcuts, installs the private-network firewall rules, and offers to launch the app unelevated. Uninstall cleanup removes the current Windows account's loc.in startup entry, saved Google credentials, database, and app-managed WebView cache. Code signing, OAuth verification, and testing on a clean Windows machine are release tasks; development artifacts are unsigned.
 
 `.github/workflows/windows.yml` tests and builds an **unconfigured** portable preview on Python 3.11. It does not publish a production release or consume account credentials.
 
@@ -252,7 +268,7 @@ tests/           Isolated backend and browser tests
 run.py           Native desktop window and system tray
 ```
 
-Settings, device metadata and transfer history live in `%LOCALAPPDATA%/loc.in/locin.db`. Override with `LOCIN_DATA_DIR` for isolated development. Uploaded contents are never stored in the database; local-mode files live in your selected shared folder. OAuth credentials are kept in the OS credential vault under service `loc.in`, account `google-oauth`; imported desktop client configuration uses account `google-client`. Uninstalling retains these per-user data and credentials; remove them explicitly if you want to reset the application.
+Settings, device metadata and transfer history live in `%LOCALAPPDATA%/loc.in/locin.db`. Override with `LOCIN_DATA_DIR` for isolated development. Uploaded contents are never stored in the database; local-mode files live in your selected shared folder. OAuth credentials are kept in the OS credential vault under service `loc.in`, account `google-oauth`; imported desktop client configuration uses account `google-client`. Uninstalling removes this app-owned state for the Windows account running the uninstaller. Shared local folders, uploaded files, Google Drive content, and unknown user files are preserved. Other Windows accounts must remove their own app data and credentials; an elevated uninstaller running as a different administrator does not have access to the original account's credential vault. Exit loc.in from its tray menu before uninstalling. Reinstalling after cleanup starts with no selected local folder.
 
 ## Before production release
 
