@@ -59,6 +59,13 @@ def main():
                 expect(page.get_by_role('heading', name='Your Drive. Meet your network.')).to_be_visible()
                 expect(page.get_by_role('button', name='Start loc.in', exact=True)).to_be_disabled()
                 page.screenshot(path=str(artifacts / 'setup-desktop.png'), full_page=True)
+                page.locator('[data-action="storage-local"]').click()
+                expect(page.locator('.setup-layout')).to_be_visible()
+                expect(page.locator('.setup-aside')).to_be_visible()
+                expect(page.get_by_text('The local folder is unavailable. Check it on the host.', exact=True)).to_have_count(0)
+                expect(page.get_by_role('button', name='Start loc.in', exact=True)).to_be_disabled()
+                page.screenshot(path=str(artifacts / 'local-setup-desktop.png'), full_page=True)
+                page.locator('[data-action="storage-drive"]').click()
                 page.get_by_role('button', name='Connect Google Drive', exact=True).click()
                 expect(page.get_by_role('heading', name='Set up Google Drive', exact=True)).to_be_visible()
                 expect(page.get_by_role('button', name='Import Google JSON', exact=True)).to_be_visible()
@@ -149,6 +156,61 @@ def main():
                 with page.expect_download() as local_download:
                     page.get_by_role('link', name='Download local-test.txt', exact=True).click()
                 assert Path(local_download.value.path()).read_bytes() == b'Offline local upload'
+                # Lose an acknowledged reply, pause mid-file, reload, and reselect
+                # the same physical file. Only the unacknowledged tail is sent.
+                from app.config import CHUNK
+                large_file = Path(directory) / 'resume-test.bin'
+                large_file.write_bytes(b'a' * CHUNK + b'b' * CHUNK + b'finished')
+                offsets, held = [], []
+                lost_reply = [False]
+                def interrupt_upload(route):
+                    if route.request.method != 'PUT':
+                        route.continue_()
+                        return
+                    from urllib.parse import urlparse, parse_qs
+                    offset = int(parse_qs(urlparse(route.request.url).query).get('offset', ['0'])[0])
+                    offsets.append(offset)
+                    if offset == 0 and not lost_reply[0]:
+                        route.fetch()
+                        lost_reply[0] = True
+                        route.abort('failed')
+                    elif offset == CHUNK and not held:
+                        held.append(route)
+                    else:
+                        route.continue_()
+                page.route('**/api/files/upload/*', interrupt_upload)
+                page.locator('#file-picker').set_input_files(str(large_file))
+                page.get_by_role('button', name='Home', exact=True).click()
+                page.locator('[data-nav="transfers"]').click()
+                expect(page.get_by_role('button', name='Pause', exact=True)).to_be_visible(timeout=15000)
+                page.get_by_role('button', name='Pause', exact=True).click()
+                # If Pause was clicked during the retry delay, the second chunk
+                # has not started yet. Either path must retain acknowledged bytes.
+                if held:
+                    held[0].continue_()
+                expect(page.get_by_role('button', name='Resume upload', exact=True)).to_be_visible(timeout=15000)
+                assert runtime.transfers.uploads
+                key = next(iter(runtime.transfers.uploads))
+                acknowledged = runtime.transfers.uploads[key]['offset']
+                assert acknowledged >= CHUNK
+                page.reload()
+                expect(page.locator('#preloader')).to_have_count(0, timeout=15000)
+                page.get_by_role('button', name='Files', exact=True).click()
+                page.unroute('**/api/files/upload/*', interrupt_upload)
+                resumed_offsets = []
+                def record_resume(route):
+                    if route.request.method == 'PUT':
+                        from urllib.parse import urlparse, parse_qs
+                        resumed_offsets.append(int(parse_qs(urlparse(route.request.url).query)['offset'][0]))
+                    route.continue_()
+                page.route('**/api/files/upload/*', record_resume)
+                page.locator('#file-picker').set_input_files(str(large_file))
+                expect(page.get_by_role('button', name='resume-test.bin', exact=True)).to_be_visible(timeout=20000)
+                assert resumed_offsets[0] == acknowledged
+                assert offsets.count(0) == 1
+                assert (local_folder / 'resume-test.bin').read_bytes() == large_file.read_bytes()
+                assert any(t['id'] == key and t['status'] == 'Completed' for t in runtime.transfers.list())
+                page.unroute('**/api/files/upload/*', record_resume)
                 page.get_by_role('button', name='Home', exact=True).click()
                 page.get_by_role('button', name='Stop service', exact=True).click()
                 page.get_by_role('button', name='Settings', exact=True).click()
@@ -158,8 +220,31 @@ def main():
                 page.locator('[data-action="storage-local"]').click()
                 expect(page.get_by_label('Storage location').locator('[aria-pressed="true"]')).to_contain_text('Local storage')
                 # Same static shell selects the minimal client navigation from /mode.
+                page.get_by_role('button', name='Protect shared folder', exact=True).click()
+                page.get_by_label('Folder password', exact=True).fill('browser-password')
+                page.get_by_role('button', name='Save password', exact=True).click()
+                expect(page.get_by_role('button', name='Manage password', exact=True)).to_be_visible()
+                # Simulate the protected client response while serving the shell
+                # on loopback; backend LAN authorization has separate API tests.
+                denied = [True]
+                def protected_listing(route):
+                    if denied[0]:
+                        route.fulfill(status=423,json={'detail':'Enter the password to open this folder.','folder_id':'local_root'})
+                    else:
+                        route.continue_()
+                def unlock_client(route):
+                    response=route.fetch()
+                    if response.status==200:
+                        denied[0]=False
+                    route.fulfill(response=response)
+                page.route('**/api/files?*',protected_listing)
+                page.route('**/api/folders/unlock',unlock_client)
                 page.route('**/mode', lambda route: route.fulfill(json={'host': False}))
                 page.reload()
+                expect(page.get_by_role('heading',name='Protected folder',exact=True)).to_be_visible()
+                page.get_by_label('Folder password',exact=True).fill('browser-password')
+                page.get_by_role('button',name='Unlock folder',exact=True).click()
+                expect(page.get_by_role('button',name='local-test.txt',exact=True)).to_be_visible()
                 expect(page.get_by_role('button', name='Files', exact=True)).to_be_visible()
                 expect(page.get_by_role('button', name='Settings', exact=True)).to_have_count(0)
                 expect(page.get_by_role('button', name='Transfers', exact=True)).to_be_visible()

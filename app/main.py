@@ -3,6 +3,8 @@ import json
 import secrets
 import threading
 import time
+import asyncio
+import socket
 from pathlib import Path
 from typing import Literal
 from fastapi import FastAPI, HTTPException, Request
@@ -19,6 +21,7 @@ from .files import routes
 from .network import Gateway
 from .transfers import Transfers
 from .local import LocalStorage, validate_folder
+from .locks import FolderLocks, FolderLocked
 
 
 class Runtime:
@@ -26,6 +29,7 @@ class Runtime:
         self.db = db or Database()
         self.drive = drive or Drive()
         self.local = LocalStorage(self.db)
+        self.folder_locks = FolderLocks(self.db)
         self.transfers = Transfers(self.db)
         self.gateway = Gateway(self)
         self.host_token = secrets.token_urlsafe(32)
@@ -53,11 +57,31 @@ class SettingsInput(BaseModel):
     local_folder: str = Field(default='', max_length=4096)
 
 
+class LockInput(BaseModel):
+    folder_id: str = Field(default='', max_length=8192)
+    password: str = Field(default='', max_length=128)
+    remove: bool = False
+
+
 def create_app(runtime=None, host=True):
     runtime = runtime or Runtime()
     app = FastAPI(title='loc.in', docs_url=None, redoc_url=None, openapi_url=None)
     app.state.runtime = runtime
     db, drive, gateway = runtime.db, runtime.drive, runtime.gateway
+
+    @app.exception_handler(FolderLocked)
+    async def folder_locked(request, exc):
+        return JSONResponse({'detail': 'Enter the password to open this folder.', 'folder_id': exc.folder}, status_code=423)
+
+    @app.post('/api/folders/unlock')
+    def unlock_folder(body: LockInput, request: Request):
+        folder = body.folder_id or runtime.storage_root
+        folder = runtime.storage.contained(folder, runtime.storage_root, True)['id']
+        token = runtime.folder_locks.unlock(folder, body.password, 'host' if host else request.state.device,
+                                           request.cookies.get('locin_folders', ''))
+        response = JSONResponse({'ok': True})
+        response.set_cookie('locin_folders', token, httponly=True, samesite='strict', max_age=1800, path='/')
+        return response
 
     @app.exception_handler(DriveError)
     async def drive_error(request, exc):
@@ -130,11 +154,12 @@ def create_app(runtime=None, host=True):
                 runtime.local.root()
             except ValueError:
                 ready = False
-        result = {'state': gateway.state, 'connected': ready, 'unavailable': not ready if local else drive.unavailable,
+        result = {'state': gateway.state, 'connected': ready, 'unavailable': bool(settings['local_folder']) and not ready if local else drive.unavailable,
                   'storage_mode': settings['storage_mode'],
                   'folder_name': Path(settings['local_folder']).name if local else settings['folder_name'], 'address': gateway.address(), 'host': host}
         if host:
             result.update({'email': drive.email, 'folder_id': runtime.storage_root, 'drive_folder_id': settings['folder_id'],
+                           'root_locked': runtime.storage_root in runtime.folder_locks.records(),
                            'drive_connected': bool(drive.credentials), 'local_folder': settings['local_folder'],
                            'folder_picker': bool(runtime.pick_folder), 'local_name': settings['local_name'],
                            'oauth_configured': drive.oauth_ready(), 'discovery_address': gateway.discovery_address(),
@@ -146,6 +171,35 @@ def create_app(runtime=None, host=True):
     app.include_router(routes(runtime, host))
 
     if host:
+        @app.post('/api/folder-lock')
+        def configure_folder_lock(body: LockInput):
+            with runtime.settings_lock, gateway.lock:
+                if gateway.state in ('Running', 'Starting') or runtime.transfers.uploads or runtime.transfers.downloads:
+                    raise HTTPException(409, 'Stop loc.in and finish transfers before changing folder protection.')
+                folder = body.folder_id or runtime.storage_root
+                folder = runtime.storage.contained(folder, runtime.storage_root, True)['id']
+                if not body.remove and len(body.password) < 8:
+                    raise HTTPException(400, 'Use a password with at least 8 characters.')
+                runtime.folder_locks.configure(folder, None if body.remove else body.password)
+            return {'ok': True}
+
+        @app.post('/api/network/check')
+        async def check_domain():
+            name = db.settings()['local_name'] + '.loc.in'
+            expected = gateway.ip
+            addresses = []
+            if not expected:
+                return {'domain': name, 'matches': False, 'message': 'Start loc.in first so the host has a local IP address.'}
+            try:
+                records = await asyncio.wait_for(asyncio.to_thread(socket.getaddrinfo, name, None, socket.AF_INET), timeout=5)
+                addresses = sorted({record[4][0] for record in records})
+            except (OSError, asyncio.TimeoutError):
+                pass
+            matches = addresses == [expected]
+            return {'domain': name, 'matches': matches, 'expected': expected, 'resolved': addresses,
+                    'message': f'This computer resolves {name} to {expected}. Other devices must use the same internal DNS.' if matches else
+                    f'Configure an internal DNS A record: {name} → {expected}. Reserve this IP in the router and make Wi-Fi clients use that DNS server.'}
+
         @app.post('/api/auth/config')
         async def import_google_config(request: Request):
             payload = bytearray()

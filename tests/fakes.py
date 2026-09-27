@@ -89,3 +89,7 @@ class FakeDrive(Drive):
         client = httpx.Client()
         response = httpx.Response(200, stream=Stream(), headers={'content-length': '28'})
         return client, response, metadata['name'], metadata['mimeType']
+
+    def upload_status(self, url, total):
+        count = self.sessions[url]['offset']
+        return count, count == total

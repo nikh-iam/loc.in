@@ -9,7 +9,7 @@ import time
 import webbrowser
 from pathlib import Path
 import uvicorn
-from app.config import CONTROL_PORT
+from app.config import CONTROL_PORT, DATA
 from app.main import Runtime, create_app
 
 
@@ -27,6 +27,7 @@ def tray_image():
 def notify_error(message):
     if sys.platform == 'win32':
         import ctypes
+        ctypes.windll.kernel32.CreateMutexW.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_wchar_p]
         ctypes.windll.user32.MessageBoxW(None, message, 'loc.in', 0x10)
     elif sys.stderr:
         print(message, file=sys.stderr)
@@ -38,7 +39,18 @@ def main():
     parser.add_argument('--background', action='store_true', help='Start in the system tray.')
     parser.add_argument('--no-window', action='store_true', help='Run only the loopback host server; for development.')
     parser.add_argument('--smoke-test', action='store_true', help='Check the packaged host server and exit without opening a window.')
+    parser.add_argument('--uninstall-cleanup', action='store_true', help='Remove loc.in-owned data for this Windows account.')
     args = parser.parse_args()
+    if args.uninstall_cleanup:
+        from app.uninstall import cleanup_user_data
+        try:
+            with socket.socket() as probe:
+                probe.bind(('127.0.0.1', CONTROL_PORT))
+                cleanup_user_data()
+            return 0
+        except Exception:
+            notify_error('Close loc.in from its tray menu and retry uninstalling. App data could not be fully removed; shared files were not deleted.')
+            return 1
     # Frozen windowed builds have no console streams. Avoid logger formatter errors.
     if sys.stdout is None:
         sys.stdout = open(os.devnull, 'w')
@@ -59,6 +71,11 @@ def main():
         return 1
     port = listener.getsockname()[1]
     runtime = Runtime()
+    app_mutex = None
+    if sys.platform == 'win32' and not args.smoke_test:
+        import ctypes
+        ctypes.windll.kernel32.CreateMutexW.restype = ctypes.c_void_p
+        app_mutex = ctypes.windll.kernel32.CreateMutexW(None, False, 'loc.in.running')
     runtime.open_browser = webbrowser.open
     url = f'http://127.0.0.1:{port}/#token={runtime.host_token}'
     server = uvicorn.Server(uvicorn.Config(create_app(runtime), access_log=False, log_level='warning', proxy_headers=False, timeout_graceful_shutdown=5))
@@ -139,7 +156,7 @@ def main():
                     closed.set()
                 window.events.closing += closing
                 try:
-                    webview.start(private_mode=True)
+                    webview.start(private_mode=True, storage_path=str(DATA / 'webview'))
                 except Exception:
                     window = None
                     webbrowser.open(url)
@@ -164,6 +181,8 @@ def main():
         server.should_exit = True
         worker.join(timeout=7)
         listener.close()
+        if app_mutex:
+            ctypes.windll.kernel32.CloseHandle(ctypes.c_void_p(app_mutex))
     return 0
 
 

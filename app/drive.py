@@ -122,7 +122,15 @@ class Drive:
         if response.status_code == 404:
             raise DriveError('This file or folder is no longer available.', 404)
         if response.status_code == 403:
+            try:
+                reasons = {item.get('reason') for item in response.json().get('error', {}).get('errors', [])}
+            except (ValueError, AttributeError, TypeError):
+                reasons = set()
+            if reasons & {'rateLimitExceeded', 'userRateLimitExceeded'}:
+                raise DriveError('Google Drive is busy. This upload can resume shortly.', 429)
             raise DriveError('Google Drive denied this operation. Check the folder permissions and account limits.', 403)
+        if response.status_code == 429:
+            raise DriveError('Google Drive is busy. This upload can resume shortly.', 429)
         self.unavailable = True
         raise DriveError('Google Drive is currently unavailable. loc.in is still running on your local network.')
 
@@ -200,6 +208,13 @@ class Drive:
             received = response.headers.get('range', '')
             count = int(received.rsplit('-', 1)[-1]) + 1 if received else 0
             return count, False
+        return total, True
+
+    def upload_status(self, url, total):
+        response = self.request('PUT', url, content=b'', headers={'Content-Range': f'bytes */{total}', 'Content-Length': '0'})
+        if response.status_code == 308:
+            received = response.headers.get('range', '')
+            return (int(received.rsplit('-', 1)[-1]) + 1 if received else 0), False
         return total, True
 
     def download(self, metadata):
