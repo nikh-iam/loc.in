@@ -5,7 +5,7 @@ from functools import wraps
 import anyio
 from urllib.parse import quote
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import StreamingResponse
+from fastapi.responses import StreamingResponse, Response
 from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 from .config import CHUNK, valid_name
@@ -189,6 +189,45 @@ def routes(runtime, host):
         finally:
             item['lock'].release()
         return {'ok': True}
+
+    @router.get('/api/files/{file_id}/preview')
+    @storage_operation
+    def preview(file_id: str, request: Request):
+        storage = runtime.storage
+        metadata = storage.contained(file_id, runtime.storage_root)
+        runtime.folder_locks.check(storage, runtime.storage_root, file_id, request, host)
+        mime = metadata['mimeType']
+        supported = {'image/png', 'image/jpeg', 'image/gif', 'image/webp',
+                     'text/plain', 'text/csv', 'application/json'}
+        if mime not in supported:
+            raise HTTPException(415, 'Preview is not available for this type. Download the file to open it.')
+        limit = 10 * 1024 * 1024
+        if int(metadata.get('size') or 0) > limit:
+            raise HTTPException(413, 'Previews support files up to 10 MB. Download this file to open it.')
+        # Reserve a transfer slot so concurrent previews have a bounded memory budget.
+        with transfers.lock:
+            key = transfers.begin(metadata['name'], owner(request), 'download', int(metadata.get('size') or 0))
+        client = response = None
+        try:
+            client, response, _, _ = storage.download(metadata)
+            body = bytearray()
+            for chunk in response.iter_bytes(CHUNK):
+                if len(body) + len(chunk) > limit:
+                    raise HTTPException(413, 'Preview exceeds 10 MB. Download this file to open it.')
+                body.extend(chunk)
+                transfers.progress(key, len(body))
+            transfers.finish(key)
+            # Never serve user content as an executable document on the app origin.
+            return Response(bytes(body), media_type='application/octet-stream',
+                            headers={'Content-Disposition': 'attachment', 'Cache-Control': 'no-store'})
+        except Exception:
+            transfers.finish(key, 'Failed', 'Preview unavailable.')
+            raise
+        finally:
+            if response is not None:
+                response.close()
+            if client is not None:
+                client.close()
 
     @router.get('/api/files/{file_id}/download')
     @storage_operation

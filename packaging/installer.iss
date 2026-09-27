@@ -1,5 +1,5 @@
 #define AppName "loc.in"
-#define AppVersion "1.2.0"
+#define AppVersion "1.3.0"
 
 [Setup]
 AppId={{D3179EBA-0C3F-430C-B643-CF055558D19D}

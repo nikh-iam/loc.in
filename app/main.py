@@ -8,7 +8,7 @@ import socket
 from pathlib import Path
 from typing import Literal
 from fastapi import FastAPI, HTTPException, Request
-from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 from starlette.concurrency import run_in_threadpool
 from google_auth_oauthlib.flow import Flow
@@ -18,7 +18,7 @@ from .database import Database
 from .devices import active, touch
 from .drive import Drive, DriveError, SCOPES
 from .files import routes
-from .network import Gateway
+from .network import Gateway, local_interface
 from .transfers import Transfers
 from .local import LocalStorage, validate_folder
 from .locks import FolderLocks, FolderLocked
@@ -104,7 +104,7 @@ def create_app(runtime=None, host=True):
                 return JSONResponse({'detail': 'Host controls are only available on this computer.'}, status_code=403)
         else:
             name = db.settings()['local_name']
-            allowed_hosts = {gateway.ip, name + '.loc.in', name + '.local'}
+            allowed_hosts = {gateway.ip, name + '.local', name + '.loc.in'}
             try:
                 local = ipaddress.ip_address(peer) in ipaddress.ip_network(gateway.subnet)
             except ValueError:
@@ -129,7 +129,7 @@ def create_app(runtime=None, host=True):
         response = await call_next(request)
         response.headers['X-Content-Type-Options'] = 'nosniff'
         response.headers['Referrer-Policy'] = 'no-referrer'
-        response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
+        response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'"
         if request.url.path.startswith('/api/'):
             response.headers['Cache-Control'] = 'no-store'
         return response
@@ -162,8 +162,8 @@ def create_app(runtime=None, host=True):
                            'root_locked': runtime.storage_root in runtime.folder_locks.records(),
                            'drive_connected': bool(drive.credentials), 'local_folder': settings['local_folder'],
                            'folder_picker': bool(runtime.pick_folder), 'local_name': settings['local_name'],
-                           'oauth_configured': drive.oauth_ready(), 'discovery_address': gateway.discovery_address(),
-                           'fallback': f'http://{gateway.ip}:{gateway.port}' if gateway.ip else None,
+                           'oauth_configured': drive.oauth_ready(), 'host_ip': gateway.ip,
+                           'fallback': gateway.fallback(), 'custom_address': gateway.custom_address(),
                            'devices': len(active(db)), 'active_transfers': len(runtime.transfers.uploads) + len(runtime.transfers.downloads),
                            'error': gateway.error, 'warning': gateway.warning, 'start_at_login': settings['start_at_login']})
         return result
@@ -183,13 +183,25 @@ def create_app(runtime=None, host=True):
                 runtime.folder_locks.configure(folder, None if body.remove else body.password)
             return {'ok': True}
 
+        @app.get('/api/network/qr')
+        def sharing_qr():
+            if gateway.state != 'Running' or not gateway.fallback():
+                raise HTTPException(409, 'Start loc.in before sharing its address.')
+            import io
+            import qrcode
+            output = io.BytesIO()
+            qrcode.make(gateway.fallback()).save(output, format='PNG')
+            return Response(output.getvalue(), media_type='image/png', headers={'Cache-Control': 'no-store'})
+
         @app.post('/api/network/check')
         async def check_domain():
-            name = db.settings()['local_name'] + '.loc.in'
-            expected = gateway.ip
+            name = db.settings()['local_name'] + '.local'
+            # Diagnose the active adapter even before starting, or after changing Wi-Fi.
+            try:
+                expected, _ = local_interface()
+            except RuntimeError as exc:
+                return {'domain': name, 'matches': False, 'message': str(exc)}
             addresses = []
-            if not expected:
-                return {'domain': name, 'matches': False, 'message': 'Start loc.in first so the host has a local IP address.'}
             try:
                 records = await asyncio.wait_for(asyncio.to_thread(socket.getaddrinfo, name, None, socket.AF_INET), timeout=5)
                 addresses = sorted({record[4][0] for record in records})
@@ -197,8 +209,8 @@ def create_app(runtime=None, host=True):
                 pass
             matches = addresses == [expected]
             return {'domain': name, 'matches': matches, 'expected': expected, 'resolved': addresses,
-                    'message': f'This computer resolves {name} to {expected}. Other devices must use the same internal DNS.' if matches else
-                    f'Configure an internal DNS A record: {name} → {expected}. Reserve this IP in the router and make Wi-Fi clients use that DNS server.'}
+                    'message': f'This computer resolves {name} to {expected}. Devices on the same network can try the local name or use the IP address.' if matches else
+                    f'Local discovery is not resolving {name} on this computer. Start loc.in and use the IP address shown on Home if your device cannot find the name.'}
 
         @app.post('/api/auth/config')
         async def import_google_config(request: Request):

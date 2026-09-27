@@ -23,5 +23,5 @@ def lan(runtime):
     runtime.gateway.ip = '192.168.10.2'
     runtime.gateway.subnet = '192.168.10.0/24'
     runtime.gateway.state = 'Running'
-    with TestClient(create_app(runtime, host=False), base_url='http://locin.local', client=('192.168.10.3', 50001), headers={'X-Locin-Request': '1'}) as client:
+    with TestClient(create_app(runtime, host=False), base_url='http://locin.loc.in', client=('192.168.10.3', 50001), headers={'X-Locin-Request': '1'}) as client:
         yield client

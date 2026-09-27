@@ -63,14 +63,16 @@ def test_imported_configuration_uses_vault_and_survives_restart(monkeypatch):
 def test_custom_dns_hostname_is_allowed(lan):
     r = lan.get('/api/status', headers={'Host': 'locin.loc.in'})
     assert r.status_code == 200
-    assert r.json()['address'] == 'http://locin.loc.in'
+    assert r.json()['address'] == 'http://locin.local'
     assert lan.get('/api/status', headers={'Host': 'another.loc.in'}).status_code == 403
     assert lan.get('/api/status', headers={'Host': 'locin.local'}).status_code == 200
 
 
-def test_custom_address_and_discovery_are_distinct(host, runtime):
+def test_local_addresses_include_actual_port(host, runtime):
     runtime.db.save({'local_name': 'vault'})
+    runtime.gateway.ip = '192.168.10.2'
     runtime.gateway.port = 8000
     data = host.get('/api/status').json()
-    assert data['address'] == 'http://vault.loc.in:8000'
-    assert data['discovery_address'] == 'http://vault.local:8000'
+    assert data['address'] == 'http://vault.local:8000'
+    assert data['fallback'] == 'http://192.168.10.2:8000'
+    assert data['custom_address'] == 'http://vault.loc.in:8000'
