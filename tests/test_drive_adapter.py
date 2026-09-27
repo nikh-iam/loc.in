@@ -26,6 +26,22 @@ def test_upload_completion_and_empty_file(drive):
     assert drive.request.call_args.kwargs['headers']['Content-Range'] == 'bytes */0'
 
 
+def test_query_resumable_session_status(drive):
+    drive.request = Mock(return_value=httpx.Response(308, headers={'Range':'bytes=0-262143'}))
+    assert drive.upload_status('https://www.googleapis.com/session', 5000000) == (262144, False)
+    assert drive.request.call_args.kwargs['headers']['Content-Range'] == 'bytes */5000000'
+    assert drive.request.call_args.kwargs['content'] == b''
+    drive.request.return_value = httpx.Response(200)
+    assert drive.upload_status('https://www.googleapis.com/session', 5000000) == (5000000, True)
+
+
+def test_drive_rate_limit_is_retryable(drive):
+    response = httpx.Response(403, json={'error': {'errors': [{'reason': 'userRateLimitExceeded'}]}})
+    with pytest.raises(DriveError) as exc:
+        drive.check(response)
+    assert exc.value.status == 429
+
+
 @pytest.mark.parametrize('location', ['https://attacker.example/token', 'http://www.googleapis.com/upload', 'https://www.googleapis.com.attacker.example/upload', ''])
 def test_upload_session_never_sends_tokens_to_untrusted_origin(drive, location):
     drive.request = Mock(return_value=httpx.Response(200, headers={'Location': location}))
