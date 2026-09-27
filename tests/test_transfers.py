@@ -59,7 +59,7 @@ def test_limit_and_cancel_release_capacity(lan, runtime):
 
 def test_upload_and_transfer_history_belong_to_device(lan, runtime):
     key = start_upload(lan)
-    with TestClient(create_app(runtime, host=False), base_url='http://locin.local', client=('192.168.10.9', 1), headers={'X-Locin-Request': '1'}) as other:
+    with TestClient(create_app(runtime, host=False), base_url='http://locin.loc.in', client=('192.168.10.9', 1), headers={'X-Locin-Request': '1'}) as other:
         assert other.put(f'/api/files/upload/{key}', content=b'hello').status_code == 404
         assert other.delete(f'/api/files/upload/{key}').status_code == 404
         assert other.get('/api/transfers').json()['transfers'] == []

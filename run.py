@@ -127,7 +127,7 @@ def main():
             if not args.browser:
                 import webview
                 webview.settings['ALLOW_DOWNLOADS'] = True
-                window = webview.create_window('loc.in', url, width=1220, height=850, min_size=(720, 560), background_color='#f7f8f5', hidden=args.background)
+                window = webview.create_window('loc.in', url, width=1220, height=850, min_size=(720, 560), background_color='#f7f8f5', hidden=args.background, maximized=True)
                 def pick_folder():
                     selected = window.create_file_dialog(webview.FileDialog.FOLDER)
                     return selected[0] if selected else None
