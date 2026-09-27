@@ -10,6 +10,7 @@ from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 from .config import CHUNK, valid_name
 from .drive import DriveError
+from .locks import FolderLocked
 from starlette.requests import ClientDisconnect
 
 
@@ -39,18 +40,24 @@ def routes(runtime, host):
 
     @router.get('/api/files')
     @storage_operation
-    def listing(parent: str = '', page: str = '', search: str = ''):
+    def listing(request: Request, parent: str = '', page: str = '', search: str = ''):
         drive, root = runtime.storage, runtime.storage_root
         parent = parent or root
         drive.contained(parent, root, folder=True)
-        return drive.listing(parent, page or None, search[:200])
+        runtime.folder_locks.check(drive, root, parent, request, host)
+        result = drive.listing(parent, page or None, search[:200])
+        locks = runtime.folder_locks.records()
+        for item in result['files']:
+            item['locked'] = item['id'] in locks
+        return result
 
     @router.post('/api/folders')
     @storage_operation
-    def create_folder(body: FolderInput):
+    def create_folder(body: FolderInput, request: Request):
         drive, root = runtime.storage, runtime.storage_root
         parent = body.parent or root
         drive.contained(parent, root, folder=True)
+        runtime.folder_locks.check(drive, root, parent, request, host)
         return drive.create_folder(parent, valid_name(body.name))
 
     @router.post('/api/files/upload')
@@ -59,6 +66,7 @@ def routes(runtime, host):
         drive, root = runtime.storage, runtime.storage_root
         parent = body.parent or root
         drive.contained(parent, root, folder=True)
+        runtime.folder_locks.check(drive, root, parent, request, host)
         name = valid_name(body.name)
         if any(ord(c) < 32 for c in body.mime):
             raise HTTPException(400, 'Invalid file type.')
@@ -110,6 +118,7 @@ def routes(runtime, host):
             raise HTTPException(409, 'A chunk is still processing. Retry shortly.')
         try:
             item['storage'].contained(item['parent'], item['root'], True)
+            runtime.folder_locks.check(item['storage'], item['root'], item['parent'], request, host)
             complete = synchronize(key, item)
             item['touched'] = time.time()
             return {'transferred': item['offset'], 'completed': complete, 'chunk_size': CHUNK}
@@ -128,6 +137,7 @@ def routes(runtime, host):
             raise HTTPException(409, 'A chunk is already being uploaded.')
         try:
             await run_in_threadpool(item['storage'].contained, item['parent'], item['root'], True)
+            await run_in_threadpool(runtime.folder_locks.check, item['storage'], item['root'], item['parent'], request, host)
             if await run_in_threadpool(synchronize, key, item):
                 return {'transferred': item['size'], 'completed': True}
             if offset != item['offset']:
@@ -156,6 +166,8 @@ def routes(runtime, host):
             raise HTTPException(408, 'Upload chunk timed out. Resume to retry this chunk.')
         except ClientDisconnect:
             raise HTTPException(408, 'Connection interrupted. Resume this upload.')
+        except FolderLocked:
+            raise
         except (DriveError, HTTPException) as exc:
             status = exc.status if isinstance(exc, DriveError) else exc.status_code
             if status not in (408, 409, 429) and status < 500:
@@ -183,6 +195,7 @@ def routes(runtime, host):
     def download(file_id: str, request: Request):
         drive = runtime.storage
         metadata = drive.contained(file_id, runtime.storage_root)
+        runtime.folder_locks.check(drive, runtime.storage_root, file_id, request, host)
         with transfers.lock:
             key = transfers.begin(metadata['name'], owner(request), 'download', int(metadata.get('size') or 0))
         try:

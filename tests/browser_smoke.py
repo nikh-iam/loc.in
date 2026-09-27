@@ -59,6 +59,13 @@ def main():
                 expect(page.get_by_role('heading', name='Your Drive. Meet your network.')).to_be_visible()
                 expect(page.get_by_role('button', name='Start loc.in', exact=True)).to_be_disabled()
                 page.screenshot(path=str(artifacts / 'setup-desktop.png'), full_page=True)
+                page.locator('[data-action="storage-local"]').click()
+                expect(page.locator('.setup-layout')).to_be_visible()
+                expect(page.locator('.setup-aside')).to_be_visible()
+                expect(page.get_by_text('The local folder is unavailable. Check it on the host.', exact=True)).to_have_count(0)
+                expect(page.get_by_role('button', name='Start loc.in', exact=True)).to_be_disabled()
+                page.screenshot(path=str(artifacts / 'local-setup-desktop.png'), full_page=True)
+                page.locator('[data-action="storage-drive"]').click()
                 page.get_by_role('button', name='Connect Google Drive', exact=True).click()
                 expect(page.get_by_role('heading', name='Set up Google Drive', exact=True)).to_be_visible()
                 expect(page.get_by_role('button', name='Import Google JSON', exact=True)).to_be_visible()
@@ -213,8 +220,31 @@ def main():
                 page.locator('[data-action="storage-local"]').click()
                 expect(page.get_by_label('Storage location').locator('[aria-pressed="true"]')).to_contain_text('Local storage')
                 # Same static shell selects the minimal client navigation from /mode.
+                page.get_by_role('button', name='Protect shared folder', exact=True).click()
+                page.get_by_label('Folder password', exact=True).fill('browser-password')
+                page.get_by_role('button', name='Save password', exact=True).click()
+                expect(page.get_by_role('button', name='Manage password', exact=True)).to_be_visible()
+                # Simulate the protected client response while serving the shell
+                # on loopback; backend LAN authorization has separate API tests.
+                denied = [True]
+                def protected_listing(route):
+                    if denied[0]:
+                        route.fulfill(status=423,json={'detail':'Enter the password to open this folder.','folder_id':'local_root'})
+                    else:
+                        route.continue_()
+                def unlock_client(route):
+                    response=route.fetch()
+                    if response.status==200:
+                        denied[0]=False
+                    route.fulfill(response=response)
+                page.route('**/api/files?*',protected_listing)
+                page.route('**/api/folders/unlock',unlock_client)
                 page.route('**/mode', lambda route: route.fulfill(json={'host': False}))
                 page.reload()
+                expect(page.get_by_role('heading',name='Protected folder',exact=True)).to_be_visible()
+                page.get_by_label('Folder password',exact=True).fill('browser-password')
+                page.get_by_role('button',name='Unlock folder',exact=True).click()
+                expect(page.get_by_role('button',name='local-test.txt',exact=True)).to_be_visible()
                 expect(page.get_by_role('button', name='Files', exact=True)).to_be_visible()
                 expect(page.get_by_role('button', name='Settings', exact=True)).to_have_count(0)
                 expect(page.get_by_role('button', name='Transfers', exact=True)).to_be_visible()

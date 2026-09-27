@@ -68,7 +68,7 @@ class LocalStorage:
         self.lock = threading.RLock()
 
     def root(self):
-        return Path(validate_folder(self.db.settings()['local_folder']))
+        return Path(validate_folder(self.db.settings()['local_folder'])).resolve()
 
     def identifier(self, path):
         relative = path.relative_to(self.root()).as_posix()
@@ -89,7 +89,7 @@ class LocalStorage:
             path = root.joinpath(*parts)
             check_path(path)
             path.resolve().relative_to(root.resolve())
-            return path
+            return path.resolve()
         except (ValueError, UnicodeError, OSError):
             raise HTTPException(404, 'File or folder is unavailable.') from None
 
@@ -98,8 +98,9 @@ class LocalStorage:
         info = path.stat()
         if not stat.S_ISDIR(info.st_mode) and not stat.S_ISREG(info.st_mode):
             raise HTTPException(404, 'File is unavailable.')
-        return {'id': identifier, 'name': path.name, 'mimeType': FOLDER if path.is_dir() else mimetypes.guess_type(path.name)[0] or 'application/octet-stream',
+        return {'id': self.identifier(path), 'name': path.name, 'mimeType': FOLDER if path.is_dir() else mimetypes.guess_type(path.name)[0] or 'application/octet-stream',
                 'size': str(info.st_size) if path.is_file() else None,
+                'parents': [] if identifier == 'local_root' else [self.identifier(path.parent)],
                 'modifiedTime': datetime.fromtimestamp(info.st_mtime, timezone.utc).isoformat()}
 
     def contained(self, identifier, root, folder=False):

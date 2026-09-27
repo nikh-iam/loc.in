@@ -1,11 +1,12 @@
 #define AppName "loc.in"
-#define AppVersion "1.1.2"
+#define AppVersion "1.2.0"
 
 [Setup]
 AppId={{D3179EBA-0C3F-430C-B643-CF055558D19D}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppPublisher=loc.in
+AppMutex=loc.in.running
 DefaultDirName={autopf}\loc.in
 DefaultGroupName=loc.in
 DisableProgramGroupPage=yes
@@ -40,3 +41,18 @@ Filename: "{app}\locin.exe"; Description: "Launch loc.in"; Flags: nowait postins
 [UninstallRun]
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""loc.in LAN"""; Flags: runhidden; RunOnceId: "LocinLAN"
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""loc.in Discovery"""; Flags: runhidden; RunOnceId: "LocinDiscovery"
+
+[Code]
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  ResultCode: Integer;
+begin
+  if CurUninstallStep = usUninstall then
+  begin
+    if not Exec(ExpandConstant('{app}\locin.exe'), '--uninstall-cleanup', '', SW_HIDE,
+      ewWaitUntilTerminated, ResultCode) then
+      RaiseException('Could not start loc.in data cleanup. Close loc.in and retry.');
+    if ResultCode <> 0 then
+      RaiseException('loc.in data cleanup failed. Close loc.in and retry uninstalling.');
+  end;
+end;
