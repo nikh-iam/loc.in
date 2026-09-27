@@ -67,7 +67,7 @@ def test_service_binds_specific_interface_and_announces(runtime, network_stack):
     try:
         assert runtime.gateway.state == 'Running'
         assert network_stack.listeners[0].address == ('192.168.10.2', 80)
-        assert runtime.gateway.address() == 'http://vault.loc.in'
+        assert runtime.gateway.address() == 'http://vault.local'
         info = network_stack.registrations[0]
         assert info.server == 'vault.local.'
         assert info.port == 80
@@ -85,7 +85,7 @@ def test_port_fallback_includes_actual_port(runtime, network_stack):
     runtime.gateway.start()
     try:
         assert runtime.gateway.state == 'Running'
-        assert runtime.gateway.address() == 'http://locin.loc.in:8000'
+        assert runtime.gateway.address() == 'http://locin.local:8000'
         assert network_stack.registrations[0].port == 8000
     finally:
         runtime.gateway.stop()

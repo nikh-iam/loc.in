@@ -67,7 +67,7 @@ function nav() {
   const items=state.host ? [['home','Home'],['folder','Files'],['devices','Devices'],['settings','Settings'],['info','About']] : [['folder','Files'],['transfer','Transfers']];
   $('#navigation').innerHTML=items.map(([key,label])=>`<button data-nav="${label.toLowerCase()}" class="${state.view===label.toLowerCase()?'active':''}" ${state.view===label.toLowerCase()?'aria-current="page"':''}>${icon(key)}<span>${label}</span>${state.view===label.toLowerCase()?'<i class="nav-dot"></i>':''}</button>`).join('');
   $('#page-label').textContent=state.view[0].toUpperCase()+state.view.slice(1);
-  $('#workspace-label').textContent=state.status.local_name ? `${state.status.local_name}.loc.in` : 'Your shared files';
+  $('#workspace-label').textContent=state.status.local_name ? `${state.status.local_name}.local` : 'Your shared files';
 }
 function alerts() {
   const s=state.status;const message=s.error || s.warning || (s.unavailable ? (localStorageSelected()?'The local folder is unavailable. Check it on the host.':'Google Drive is currently unavailable. loc.in is still running on your local network.') : (!s.connected && !state.host ? (localStorageSelected()?'Choose an available folder from the host application.':'Google Drive disconnected. Reconnect Google Drive from the host application.') : ''));
@@ -90,17 +90,19 @@ function localFolderControl() {
 function home() {
   const s=state.status;
   if(!s.connected || !s.folder_id) return setup();
-  return heading('A home for your files.',`Your ${localStorageSelected()?'local folder':'Google Drive'}, right here on your network.`,statusBadge())+`
-    <section class="hero"><div class="hero-content"><p class="eyebrow">YOUR LOCAL ADDRESS</p><div class="address">${esc((s.address||'').replace('http://',''))}</div><p class="subtitle">${s.state==='Running'?'Custom address · requires network DNS. Open loc.in uses the working IP address.':'Start loc.in to make your files available on your network.'}</p><div class="hero-actions">
+  return heading('Your network. At a glance.',`Your ${localStorageSelected()?'local folder':'Google Drive'}, right here on your network.`,statusBadge())+`
+    <section class="hero"><div class="hero-content"><p class="eyebrow">YOUR LOCAL ADDRESS</p><div class="address">${esc((s.address||'').replace('http://',''))}</div><p class="subtitle">${s.state==='Running'?'Join the same network and open this address. No client app needed.':'Start loc.in to make your files available on your network.'}</p><div class="hero-actions">
     ${s.state==='Running'?`<button class="primary" data-action="open-gateway">Open loc.in ${icon('external')}</button><button class="copy-button" data-action="copy-address" aria-label="Copy local address">${icon('copy')}</button><button class="text-button" data-action="stop" ${state.busy?'disabled':''}>${icon('stop')} Stop service</button>`:`<button class="primary" data-action="start" ${state.busy?'disabled':''}>${icon('play')} ${state.busy?'Starting…':'Start loc.in'}</button>`}
-    </div></div>${art()}</section>
+    </div>${s.state==='Running'&&s.fallback?`<p class="direct-address">Name not opening? <a href="${esc(s.fallback)}" target="_blank" rel="noopener">${esc(s.fallback)}</a> <button class="text-button" data-action="share-device">Share / QR code</button></p>`:''}</div>${art()}</section>
+    <section class="dashboard-actions" aria-label="Quick actions"><button data-nav="files">${icon('folder')}<span><strong>Explore your files</strong><small>${esc(s.folder_name)} / ${storageLabel()}</small></span>${icon('arrow')}</button><button data-action="home-upload">${icon('upload')}<span><strong>Add something new</strong><small>Upload files to your shared folder</small></span>${icon('arrow')}</button><button data-action="copy-address">${icon('copy')}<span><strong>Invite a device</strong><small>Copy your address and share it on your LAN</small></span>${icon('arrow')}</button></section>
     <section class="stats" aria-label="Gateway overview"><div class="stat"><div class="stat-top"><span>${storageLabel()}</span>${icon(localStorageSelected()?'folder':'drive')}</div><div class="stat-value connected"><span class="tiny-dot"></span>Connected</div><div class="stat-sub">${esc(localStorageSelected()?s.folder_name:(s.email || 'Your Drive is ready'))}</div></div><div class="stat"><div class="stat-top"><span>Devices</span>${icon('devices')}</div><div class="stat-value">${s.devices||0}<small>connected</small></div><div class="stat-sub">On your local network</div></div><div class="stat"><div class="stat-top"><span>Transfers</span>${icon('transfer')}</div><div class="stat-value">${s.active_transfers||0}<small>active</small></div><div class="stat-sub">${s.active_transfers?'A little back and forth':'All quiet. You’re up to date.'}</div></div></section>
     <div class="two-column"><section class="panel"><div class="panel-header"><h2>Recent transfers</h2><button class="text-button" data-nav="transfers">View all ${icon('arrow')}</button></div>${transferRows(state.transfers.slice(0,3))}</section><section class="panel"><div class="panel-header"><h2>Connected devices</h2><button class="text-button" data-nav="devices">View all ${icon('arrow')}</button></div>${deviceRows(state.devices.slice(0,3))}</section></div>
-    <div class="tip">${icon('info')}<span><strong>Custom address needs network DNS.</strong> <button class="text-button" data-action="network-help">Setup instructions</button> ${s.fallback?`No DNS configured? Use <a href="${esc(s.fallback)}" target="_blank" rel="noopener">${esc(s.fallback)}</a>.`:'Your IP fallback will be ready when you start.'}</span><span class="tag">SIMPLY LOCAL</span></div>`;
+    <div class="tip">${icon('wifi')}<span>Same network. Any browser. <button class="text-button" data-action="check-domain">Check connection</button></span><span class="tag">${s.root_locked?'PASSWORD PROTECTED':'LOCAL NETWORK'}</span></div>`;
+
 }
 function addressField() {
   const s=state.status;
-  return `<div class="field"><label for="local-name">Local name</label><div class="input-suffix"><input id="local-name" aria-label="Local name" maxlength="63" value="${esc(state.draftName??s.local_name??'locin')}" spellcheck="false" autocomplete="off" ${s.state==='Running'?'disabled':''}><span>.loc.in</span></div><small>One address for both storage choices. Configure this name in your internal DNS. <button class="text-button" data-action="network-help">Setup instructions</button></small></div>`;
+  return `<div class="field"><label for="local-name">Local name</label><div class="input-suffix"><input id="local-name" aria-label="Local name" maxlength="63" value="${esc(state.draftName??s.local_name??'locin')}" spellcheck="false" autocomplete="off" ${s.state==='Running'?'disabled':''}><span>.local</span></div><small>Automatically shared on your local network. No router setup needed. <button class="text-button" data-action="network-help">Setup instructions</button></small></div>`;
 }
 function sharedFolderControl() {
   const s=state.status;
@@ -168,10 +170,11 @@ function googleSetupDialog() {
 }
 function networkHelp() {
   const s=state.status;
-  return `<div class="guide-note"><strong>Your custom address: ${esc(s.address||'http://locin.loc.in')}</strong><p>A network DNS administrator must create an <strong>A record</strong> for <code>${esc((s.address||'http://locin.loc.in').split('//')[1].split(':')[0])}</code> pointing to <code>${esc(s.fallback ? new URL(s.fallback).hostname : 'the host’s local IP')}</code>. Reserve that IP in the router so it stays the same. Client devices must use that DNS server.</p><p>This does not publish the gateway to the internet. A subdomain under loc.in is not automatically created by this app. Use a domain you control or an administrator-managed internal DNS override.</p><p>Without custom DNS, use <strong>${esc(s.discovery_address||'http://locin.local')}</strong> on devices supporting local discovery, or ${s.fallback?`<a href="${esc(s.fallback)}" target="_blank" rel="noopener">${esc(s.fallback)}</a>`:'the IP fallback shown after starting'}. Keep any displayed <code>:8000</code> suffix. Enter the full <code>http://</code> address in the browser address bar.</p><button data-action="check-domain">Check domain on this host</button></div>`;
+  return `<div class="guide-note"><strong>One host. Your local network.</strong><ol class="guide-steps"><li>Start loc.in on the host and keep it awake.</li><li>Connect your other device to the same Wi-Fi or LAN.</li><li>Open <strong>${esc(s.address)}</strong> in its browser.</li></ol><p>If the local name does not open, use ${s.fallback?`<a href="${esc(s.fallback)}" target="_blank" rel="noopener">${esc(s.fallback)}</a>`:'the IP address shown after starting'} or scan the sharing QR code. No DNS configuration is needed.</p><p>Keep the full address, including any port number shown. Guest Wi-Fi isolation, VPNs, or a host firewall can block communication between devices.</p><p>Optional addresses ending in .loc.in still require internal DNS; they are not needed for normal use.</p></div>`;
+
 }
 function about() {
-  return heading('About loc.in','Cloud or local storage, shared with the devices around you.', '<span class="pill">Version 1.2.0</span>')+`
+  return heading('About loc.in','Cloud or local storage, shared with the devices around you.', '<span class="pill">Version 1.3.0</span>')+`
     <section class="hero"><div class="hero-content"><p class="eyebrow">INSTALL. CONNECT. CHOOSE A NAME. START.</p><h2 class="about-title">One computer. A shared local space.</h2><p class="about-intro">loc.in connects a Google Drive folder or a folder on this computer to your local network. Google Drive is the recommended cloud option; local storage works without Google or internet access. Keep the host running, and open its address from a phone, tablet, or computer. No client app is needed.</p></div>${art()}</section>
     <div class="about-grid">
       <section class="panel"><div class="panel-header"><h2>${icon('folder')} Files, kept simple</h2></div><div class="panel-body"><ul><li>Browse folders and search the current folder.</li><li>Upload multiple files, download files, and create folders.</li><li>Share only your selected folder and its contents. Add folder passwords from Files or Settings. Switch storage from Settings while stopped; files are never moved between storage options.</li><li>Download Google Docs as PDF, Sheets as XLSX, and Slides as PPTX.</li></ul></div></section>
@@ -180,7 +183,7 @@ function about() {
       <section class="panel"><div class="panel-header"><h2>${icon('cloud')} What needs to stay on?</h2></div><div class="panel-body"><p>Keep the host computer awake, loc.in running, and the host connected to the internet for Drive operations.</p><p>If internet access goes down, local pages and service status still load. Drive operations need the connection to return. Local storage keeps browsing, uploading, and downloading available without internet.</p><p>Closing the host window keeps the app in the tray when available. Choose Exit from the tray to shut it down.</p></div></section>
     </div>
     <section class="panel about-guide"><div class="panel-header"><h2>Connect Google Drive</h2><span class="pill">${state.status.oauth_configured?'Configured':'One-time setup'}</span></div><div class="panel-body">${googleSetupInstructions()}${!state.status.drive_connected?'<button class="primary" data-action="import-oauth">Import Google JSON</button>':''}<p class="guide-note">After connecting: choose a name, choose a Drive folder, and start loc.in. Google Workspace administrators may need to allow this OAuth app. Public distribution requires the applicable Google OAuth verification.</p></div></section>
-    <section class="panel about-guide"><div class="panel-header"><h2>Your custom-name.loc.in address</h2>${icon('wifi')}</div><div class="panel-body">${networkHelp()}</div></section>`;
+    <section class="panel about-guide"><div class="panel-header"><h2>Connect from any device</h2>${icon('wifi')}</div><div class="panel-body">${networkHelp()}</div></section>`;
 }
 async function refresh() {
   const was=state.status.connected;
@@ -305,6 +308,34 @@ async function processUploads() {
     }
   }finally{state.uploading=false;state.uploads=state.uploads.filter(u=>['Waiting','Paused'].includes(u.status));if(state.uploads.some(u=>u.status==='Waiting'))void processUploads();}
 }
+let previewUrl=null, previewController=null;
+function releasePreview() {
+  previewController?.abort();previewController=null;
+  if(previewUrl){URL.revokeObjectURL(previewUrl);previewUrl=null;}
+}
+$('#dialog').addEventListener('close',releasePreview);
+async function previewFile(file) {
+  releasePreview();
+  const supported=['image/png','image/jpeg','image/gif','image/webp','text/plain','text/csv','application/json'].includes(file.mimeType);
+  showDialog(dialogHeading('File preview')+`<h3 class="detail-name">${esc(file.name)}</h3><div id="preview-content" class="preview-content" role="status">${supported?'Loading preview...':'Preview is not available for this file type. Download it to open it.'}</div><div class="dialog-actions"><a class="primary button-link" href="/api/files/${encodeURIComponent(file.id)}/download">${icon('download')} Download file</a></div>`);
+  if(!supported)return;
+  const controller=new AbortController();previewController=controller;
+  try {
+    const response=await fetch(`/api/files/${encodeURIComponent(file.id)}/preview`,{signal:controller.signal});
+    if(!response.ok){const error=await response.json();if(response.status===423){state.lockTarget=error.folder_id;passwordPrompt();return;}throw new Error(error.detail||'Preview unavailable.');}
+    const blob=await response.blob();
+    if(controller.signal.aborted||!$('#dialog').open)return;
+    const container=$('#preview-content');container.replaceChildren();
+    if(file.mimeType.startsWith('image/')){
+      previewUrl=URL.createObjectURL(new Blob([blob],{type:file.mimeType}));
+      const img=document.createElement('img');img.alt=file.name;img.src=previewUrl;
+      img.onerror=()=>{container.textContent='This image could not be displayed. Download it to open it.';};container.append(img);
+    }else{
+      const text=await blob.text();if(controller.signal.aborted)return;
+      const pre=document.createElement('pre');pre.textContent=text;container.append(pre);
+    }
+  }catch(error){if(error.name!=='AbortError'&&$('#preview-content'))$('#preview-content').textContent=error.message;}
+}
 function passwordPrompt() {
   showDialog(dialogHeading('Protected folder')+`<p>Enter this folder's password to access its files.</p><div class="field"><label for="folder-password">Folder password</label><input id="folder-password" type="password" maxlength="128" autocomplete="current-password"></div><div class="dialog-actions"><button data-action="close-dialog">Cancel</button><button class="primary" data-action="unlock-folder">Unlock folder</button></div>`);
 }
@@ -326,8 +357,9 @@ const actions={
   'connect':async()=>{if(!state.status.oauth_configured){googleSetupDialog();return;}const data=await api('/api/auth/google',{method:'POST'});if(data.opened)toast('Complete the connection in your browser, then return here.');else showDialog(dialogHeading('Connect Google Drive')+`<p>Sign in securely with Google in your browser. Then return here to finish setup.</p><a class="primary button-link" href="${esc(data.url)}" target="_blank" rel="noopener">Continue to Google ${icon('external')}</a>`);},
   'google-help':()=>googleSetupDialog(),
   'import-oauth':()=>$('#oauth-picker').click(),
-  'check-domain':async()=>{const result=await api('/api/network/check',{method:'POST'});showDialog(dialogHeading(result.matches?'Domain resolves on this host':'Domain needs DNS setup')+`<p>${esc(result.message)}</p>${networkHelp()}<div class="dialog-actions"><button data-action="close-dialog">Done</button></div>`);},
-  'network-help':()=>showDialog(dialogHeading('Set up your custom address')+networkHelp()+`<div class="dialog-actions"><button data-action="close-dialog">Done</button></div>`),
+  'check-domain':async()=>{const result=await api('/api/network/check',{method:'POST'});showDialog(dialogHeading(result.matches?'Local name is available':'Use your direct address')+`<p>${esc(result.message)}</p>${result.expected?`<p>Local address: <code>${esc(result.domain)} ? ${esc(result.expected)}</code></p>`:''}${networkHelp()}<div class="dialog-actions"><button data-action="close-dialog">Done</button></div>`);},
+  'share-device':()=>showDialog(dialogHeading('Connect another device')+`<p>Join the same Wi-Fi or LAN, then scan this code.</p><img class="share-qr" src="/api/network/qr" alt="QR code for the host local IP address"><p class="detail-name">${esc(state.status.fallback)}</p>${networkHelp()}`),
+  'network-help':()=>showDialog(dialogHeading('Connect another device')+networkHelp()+`<div class="dialog-actions"><button data-action="close-dialog">Done</button></div>`),
   'default-folder':async()=>{await saveSettings();await api('/api/drive/default-folder',{method:'POST'});await refresh();render();toast('Your loc.in folder is ready.');},
   'choose-folder':async()=>{folderStack=[];folderPage=null;await folderPicker();},
   'folder-back':async()=>{folderStack.pop();await folderPicker();},
@@ -337,8 +369,9 @@ const actions={
   'setup-start':async()=>{await saveSettings();await actions.start();},
   'start':async()=>{state.status=await api('/api/service/start',{method:'POST'});render();if(state.status.error)toast(state.status.error,true);},
   'stop':async()=>{state.status=await api('/api/service/stop',{method:'POST'});await refresh();render();toast('loc.in is stopped.');},
-  'open-gateway':()=>window.open(state.status.fallback||state.status.discovery_address,'_blank','noopener'),
+  'open-gateway':()=>window.open(state.status.fallback||state.status.address,'_blank','noopener'),
   'copy-address':async()=>{try{await navigator.clipboard.writeText(state.status.address);toast('Local address copied.');}catch{showDialog(dialogHeading('Your local address')+`<p>Copy this address to share it with a device on your Wi-Fi.</p><input class="search" readonly value="${esc(state.status.address)}">`);}},
+  'home-upload':async()=>{await navigate('files');$('#file-picker').click();},
   'upload':()=>$('#file-picker').click(),
   'refresh-files':()=>loadFiles(),
   'more-files':()=>loadFiles(true),
@@ -355,7 +388,7 @@ document.addEventListener('click',async event=>{
     if(button.dataset.file!==undefined){
       const f=state.files[Number(button.dataset.file)];
       if(f.mimeType===folderMime){state.crumbs.push({id:f.id,name:f.name});state.search='';render();await loadFiles();}
-      else showDialog(dialogHeading('File details')+`<div class="detail-icon">${icon('file')}</div><h2 class="detail-name">${esc(f.name)}</h2><div class="detail-meta"><span>${size(f.size)}</span><span>${date(f.modifiedTime)}</span></div><p>Download to open this file on your device.${f.mimeType.startsWith('application/vnd.google-apps.')?' Google Docs, Sheets, and Slides are exported to PDF, XLSX, and PPTX.':''}</p><div class="dialog-actions"><a class="primary button-link" href="/api/files/${encodeURIComponent(f.id)}/download">${icon('download')} Download file</a></div>`);
+      else await previewFile(f);
       return;
     }
     if(button.dataset.pickFolder!==undefined){folderStack.push(folderItems[Number(button.dataset.pickFolder)]);await folderPicker();return;}

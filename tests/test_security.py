@@ -43,7 +43,7 @@ def test_lan_cannot_access_controls_or_credentials(lan, runtime):
 
 
 def test_lan_rejects_foreign_subnet(lan, runtime):
-    with TestClient(create_app(runtime, host=False), base_url='http://locin.local', client=('192.168.11.3', 1)) as c:
+    with TestClient(create_app(runtime, host=False), base_url='http://locin.loc.in', client=('192.168.11.3', 1)) as c:
         assert c.get('/').status_code == 403
 
 
@@ -96,3 +96,9 @@ def test_assets_are_local_and_have_security_headers(lan):
         assert r.status_code == 200
         assert r.headers['x-content-type-options'] == 'nosniff'
         assert "frame-ancestors 'none'" in r.headers['content-security-policy']
+
+
+def test_local_name_and_ip_serve_only_lan_clients(lan):
+    for hostname in ('192.168.10.2', 'locin.local', 'locin.loc.in'):
+        assert lan.get('/api/status', headers={'host': hostname}).status_code == 200
+    assert lan.get('/api/status', headers={'host': 'other.local'}).status_code == 403
