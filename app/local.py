@@ -186,6 +186,13 @@ class LocalStorage:
             if item:
                 item['stream'].close()
 
+    def upload_status(self, key, total):
+        with self.lock:
+            item = self.sessions.get(key)
+            if not item:
+                raise HTTPException(404, 'Upload is no longer active.')
+            return item['offset'], False
+
     def download(self, metadata):
         with self.lock:
             path = self.path(metadata['id'])

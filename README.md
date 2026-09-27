@@ -48,7 +48,7 @@ This repository implements the MVP and includes a Windows desktop launcher, tray
 
 Before real Drive access, import a Google Desktop OAuth client through the installed app, or bundle the publisher's configuration as described below. Automated backend and browser tests use a synthetic Drive adapter only under `tests/`; live Google consent, real large-file transfers, and discovery from a second physical device must still be verified before release.
 
-## Set up Google Drive in the installed app (v1.1.1)
+## Set up Google Drive in the installed app (v1.1.2)
 
 If you see a message about missing Google configuration, the installer has no publisher OAuth client bundled. You do not need to install Python or rebuild the app:
 
@@ -95,6 +95,8 @@ The preferred address is now **`http://vault.loc.in`**. This is a conventional D
 Configure only the internal override needed for your gateway. Do not publish private host addresses to public DNS or change internet-facing/router forwarding settings. The app still advertises **`vault.local`** through mDNS and accepts the numeric IP fallback. `.local` is a special local-discovery namespace; `.loc.in` is not. See [RFC 6762](https://www.rfc-editor.org/info/rfc6762/).
 
 Use `custom-name`, not `custom_name`: DNS host labels here accept letters, numbers and hyphens, not underscores. The Home **Open loc.in** button uses the IP fallback so you can open it before custom DNS is configured; **Copy local address** copies the preferred `.loc.in` address.
+
+For example, if the host IP is `192.168.1.33`, choose **home** in loc.in and configure the router/internal DNS record **`home.loc.in → 192.168.1.33`**. Joining Wi-Fi alone does not create this record. Clients must receive/use the internal DNS resolver; enter **`http://home.loc.in`** in the browser address bar. Home → Setup instructions → **Check domain on this host** checks the configured name against the host's current IP. A successful check on the host does not prove every client is using the same DNS server.
 
 ## Access inside an organization
 
@@ -188,7 +190,11 @@ Uploads use browser `Blob.slice` and **4 MiB** chunks sent to the host. In Googl
 
 Downloads stream in 4 MiB blocks. Google Docs export to PDF, Sheets to XLSX, and Slides to PPTX; Google's export limits still apply. Shortcuts and other native Google file types are not downloadable here. A completed download means the host finished streaming to the browser, not that the user selected a final disk location.
 
-Uploads can be cancelled between chunks. Interrupted uploads must be selected again; resuming across browser or host restarts is not implemented. Idle upload sessions expire locally after ten minutes; uncommitted Google sessions expire at Google. Download cancellation uses the browser's download controls. Transfer history persists locally, while in-progress entries become Failed after a host restart. Clients see their own transfer history; the host sees all activity.
+Uploads can be paused, resumed, or cancelled between chunks from Transfers. Transient connection failures and Drive rate limits trigger up to five retries with increasing delays. Before retrying, the host checks the acknowledged byte offset, including when Drive received a chunk but its reply was lost. Only remaining bytes are sent; progress reflects acknowledged data. After retries are exhausted, click **Resume upload**.
+
+After reloading the same browser tab, select the **same unchanged file** in the same folder to resume; the browser remembers the session ID using the file name, size, and last-modified timestamp. File contents and Google session URLs are not saved in browser storage. Keep the host running, use the same gateway address/browser/device, and resume within **ten minutes of inactivity**. Closing the tab, changing the file, changing device identity/IP, stopping/restarting the service, or an expired Google session may require starting again. This is not a persistent upload queue across host restarts. Up to three unfinished uploads/downloads hold transfer slots; cancel unused paused uploads to free capacity.
+
+Download cancellation uses the browser's download controls. Transfer history persists locally, while in-progress entries become Failed after a host restart. Clients see their own transfer history; the host sees all activity.
 
 Devices appear after recent API communication and expire from the active list after 60 seconds. Names are inferred from browser user-agent strings, and identity combines IP and user agent; this is intentionally approximate and does not scan the Wi-Fi network. Background browser tabs may become inactive.
 

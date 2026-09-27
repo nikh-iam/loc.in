@@ -3,6 +3,8 @@ import json
 import secrets
 import threading
 import time
+import asyncio
+import socket
 from pathlib import Path
 from typing import Literal
 from fastapi import FastAPI, HTTPException, Request
@@ -146,6 +148,23 @@ def create_app(runtime=None, host=True):
     app.include_router(routes(runtime, host))
 
     if host:
+        @app.post('/api/network/check')
+        async def check_domain():
+            name = db.settings()['local_name'] + '.loc.in'
+            expected = gateway.ip
+            addresses = []
+            if not expected:
+                return {'domain': name, 'matches': False, 'message': 'Start loc.in first so the host has a local IP address.'}
+            try:
+                records = await asyncio.wait_for(asyncio.to_thread(socket.getaddrinfo, name, None, socket.AF_INET), timeout=5)
+                addresses = sorted({record[4][0] for record in records})
+            except (OSError, asyncio.TimeoutError):
+                pass
+            matches = addresses == [expected]
+            return {'domain': name, 'matches': matches, 'expected': expected, 'resolved': addresses,
+                    'message': f'This computer resolves {name} to {expected}. Other devices must use the same internal DNS.' if matches else
+                    f'Configure an internal DNS A record: {name} → {expected}. Reserve this IP in the router and make Wi-Fi clients use that DNS server.'}
+
         @app.post('/api/auth/config')
         async def import_google_config(request: Request):
             payload = bytearray()
